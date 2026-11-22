@@ -22,18 +22,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: voz/modelo
-          key: piper-tugao-medium-v1
+          key: piper-tugao-medium-v2
 
       - name: Gerar gravações com a voz tugão (pt-PT)
         run: |
           sudo apt-get install -y -qq ffmpeg >/dev/null
           pip install -q piper-tts
           mkdir -p voz/modelo
-          if [ ! -f voz/modelo/pt_PT-tugão-medium.onnx ]; then
-            (cd voz/modelo && python -m piper.download_voices pt_PT-tugão-medium)
-          fi
+          BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_PT/tug%C3%A3o/medium/pt_PT-tug%C3%A3o-medium"
+          [ -f voz/modelo/tugao.onnx ] || curl -fsSL -o voz/modelo/tugao.onnx "$BASE.onnx?download=true"
+          [ -f voz/modelo/tugao.onnx.json ] || curl -fsSL -o voz/modelo/tugao.onnx.json "$BASE.onnx.json?download=true"
           ls -la voz/modelo
-          python voz/gerar.py "voz/modelo/pt_PT-tugão-medium.onnx" app/src/main/assets/voz
+          PYTHONIOENCODING=utf-8 python voz/gerar.py voz/modelo/tugao.onnx app/src/main/assets/voz
           du -sh app/src/main/assets/voz
 
       - uses: actions/setup-java@v5
