@@ -1,11 +1,11 @@
-# Manel — assistente de voz para o Xiaomi Mi Smart Clock (LineageOS)
+# Tricky — assistente de voz para o Xiaomi Mi Smart Clock (LineageOS)
 
 App Android para o Mi Smart Clock (X04G, 32 bits, Android 13) com assistente de voz em português.
 O reconhecimento de voz é feito **no próprio relógio** (Vosk, modelo `vosk-model-small-pt`).
 
 ## O que faz
 
-Diz **"Manel"**, espera pelo bip e pede:
+Diz **"Hey Tricky"**, espera pelo bip e pede:
 
 | Pedido | Exemplo |
 |---|---|

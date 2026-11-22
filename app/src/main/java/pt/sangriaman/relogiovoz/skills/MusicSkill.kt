@@ -20,6 +20,7 @@ import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import pt.sangriaman.relogiovoz.Bus
 import pt.sangriaman.relogiovoz.Http
 import java.net.URLEncoder
 
@@ -53,7 +54,7 @@ object Radio {
         player?.playWhenReady = !paused
     }
 
-    /** Baixa o som enquanto o Manel ouve ou fala. */
+    /** Baixa o som enquanto o Tricky ouve ou fala. */
     fun duck(on: Boolean) {
         player?.volume = if (on) 0.15f else 1f
     }
@@ -137,6 +138,7 @@ class MusicSkill : Skill {
         return Answer("A ligar a $stName.") {
             sendMediaKey(ctx, KeyEvent.KEYCODE_MEDIA_PAUSE) // parar o NewPipe se estiver a tocar
             Radio.play(ctx, url, stName)
+            Bus.nowPlaying.value = "📻 $stName"
         }
     }
 
@@ -163,6 +165,7 @@ class MusicSkill : Skill {
         val title = item.name
         return Answer("A tocar $title${if (who != null) ", de $who" else ""}.") {
             Radio.stop()
+            Bus.nowPlaying.value = "🎵 $title${if (who != null) " — $who" else ""}"
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                 .setPackage(NEWPIPE)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -215,6 +218,7 @@ class MediaSkill : Skill {
             t[0] == "anterior" -> Answer("") { sendMediaKey(ctx, KeyEvent.KEYCODE_MEDIA_PREVIOUS) }
             else -> Answer("") {
                 Radio.stop()
+                Bus.nowPlaying.value = ""
                 sendMediaKey(ctx, KeyEvent.KEYCODE_MEDIA_PAUSE)
             }
         }

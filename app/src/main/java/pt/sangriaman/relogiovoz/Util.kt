@@ -11,10 +11,13 @@ import java.util.concurrent.TimeUnit
 object Prefs {
     private fun p(c: Context) = c.getSharedPreferences("manel", Context.MODE_PRIVATE)
 
-    fun wakeWord(c: Context) = p(c).getString("wake", "manel")!!.ifBlank { "manel" }
+    fun wakeWord(c: Context) = p(c).getString("wake", "hey tricky")!!.ifBlank { "hey tricky" }
     fun city(c: Context) = p(c).getString("city", "Lisboa")!!.ifBlank { "Lisboa" }
     fun haUrl(c: Context) = p(c).getString("ha_url", "http://192.168.1.109")!!.trimEnd('/')
     fun haToken(c: Context) = p(c).getString("ha_token", "")!!.trim()
+    /** nomes dos aparelhos que aparecem como botões no ecrã inicial */
+    fun homeButtons(c: Context) = p(c).getString("home_buttons", "resistência")!!
+        .split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
     fun save(c: Context, key: String, value: String) {
         p(c).edit().putString(key, value).apply()
@@ -26,6 +29,9 @@ object Bus {
     val status = MutableStateFlow("A iniciar…")
     val heard = MutableStateFlow("")
     val answer = MutableStateFlow("")
+    /** estado do peluche: idle, listening, thinking, speaking */
+    val mode = MutableStateFlow("idle")
+    val nowPlaying = MutableStateFlow("")
 }
 
 object Http {

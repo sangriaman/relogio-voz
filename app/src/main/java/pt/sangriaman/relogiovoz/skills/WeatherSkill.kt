@@ -23,6 +23,18 @@ class WeatherSkill : Skill {
             ?.trim()?.takeIf { it.isNotBlank() }
             ?: Prefs.city(ctx)
 
+        val f = fetch(city)
+            ?: return Answer("Não encontrei a localidade $city.")
+        val name = f.name
+        val w = f.json
+        return Answer(speak(name, w, dayIndex))
+    }
+
+    companion object {
+        class Forecast(val name: String, val json: JSONObject)
+
+        /** Previsão para uma localidade (chamar fora da thread principal). */
+        fun fetch(city: String): Forecast? {
         val geo = JSONObject(
             Http.get(
                 "https://geocoding-api.open-meteo.com/v1/search?count=1&language=pt&format=json&name=" +
@@ -30,7 +42,7 @@ class WeatherSkill : Skill {
             )
         )
         val results = geo.optJSONArray("results")
-        if (results == null || results.length() == 0) return Answer("Não encontrei a localidade $city.")
+        if (results == null || results.length() == 0) return null
         val place = results.getJSONObject(0)
         val name = place.optString("name", city)
         val lat = place.getDouble("latitude")
@@ -44,6 +56,32 @@ class WeatherSkill : Skill {
                     "&timezone=auto&forecast_days=3"
             )
         )
+        return Forecast(name, w)
+        }
+
+        /** Linha curta para o widget do ecrã inicial. */
+        fun widgetLine(f: Forecast): String {
+            val cur = f.json.getJSONObject("current")
+            val d = f.json.getJSONObject("daily")
+            val temp = cur.getDouble("temperature_2m").roundToInt()
+            val max = d.getJSONArray("temperature_2m_max").getDouble(0).roundToInt()
+            val min = d.getJSONArray("temperature_2m_min").getDouble(0).roundToInt()
+            val rain = d.getJSONArray("precipitation_probability_max").optInt(0, 0)
+            return "${icon(cur.getInt("weather_code"))} $temp° ${f.name} · ${describe(cur.getInt("weather_code"))}\n↑$max° ↓$min° · chuva $rain%"
+        }
+
+        fun icon(code: Int) = when (code) {
+            0, 1 -> "☀️"
+            2 -> "⛅"
+            3 -> "☁️"
+            45, 48 -> "🌫️"
+            in 51..67, in 80..82 -> "🌧️"
+            in 71..77, 85, 86 -> "❄️"
+            in 95..99 -> "⛈️"
+            else -> "🌡️"
+        }
+
+        fun speak(name: String, w: JSONObject, dayIndex: Int): String {
         val daily = w.getJSONObject("daily")
         val max = daily.getJSONArray("temperature_2m_max").getDouble(dayIndex).roundToInt()
         val min = daily.getJSONArray("temperature_2m_min").getDouble(dayIndex).roundToInt()
@@ -67,10 +105,10 @@ class WeatherSkill : Skill {
                 else -> ", sem chuva prevista."
             }
         )
-        return Answer(sb.toString())
-    }
+        return sb.toString()
+        }
 
-    private fun describe(code: Int) = when (code) {
+        fun describe(code: Int) = when (code) {
         0 -> "céu limpo"
         1 -> "céu pouco nublado"
         2 -> "céu parcialmente nublado"
@@ -90,5 +128,6 @@ class WeatherSkill : Skill {
         95 -> "trovoada"
         96, 99 -> "trovoada com granizo"
         else -> "tempo variável"
+    }
     }
 }

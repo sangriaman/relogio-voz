@@ -87,14 +87,14 @@ class TimerSkill : Skill {
 
         val intent = Intent(AlarmClock.ACTION_SET_TIMER)
             .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
-            .putExtra(AlarmClock.EXTRA_MESSAGE, "Manel")
+            .putExtra(AlarmClock.EXTRA_MESSAGE, "Tricky")
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             ctx.startActivity(intent)
             Answer("Temporizador de ${describe(seconds)} a contar.")
         } catch (e: Exception) {
-            Answer("Não consegui criar o temporizador. Confirma que o Manel pode abrir outras apps.")
+            Answer("Não consegui criar o temporizador. Confirma que o Tricky pode abrir outras apps.")
         }
     }
 
@@ -141,14 +141,14 @@ class AlarmSkill : Skill {
         val intent = Intent(AlarmClock.ACTION_SET_ALARM)
             .putExtra(AlarmClock.EXTRA_HOUR, hour)
             .putExtra(AlarmClock.EXTRA_MINUTES, minute)
-            .putExtra(AlarmClock.EXTRA_MESSAGE, "Manel")
+            .putExtra(AlarmClock.EXTRA_MESSAGE, "Tricky")
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             ctx.startActivity(intent)
             Answer("Alarme marcado para as $hour${if (minute > 0) " e $minute" else ""}.")
         } catch (e: Exception) {
-            Answer("Não consegui marcar o alarme. Confirma que o Manel pode abrir outras apps.")
+            Answer("Não consegui marcar o alarme. Confirma que o Tricky pode abrir outras apps.")
         }
     }
 }

@@ -38,7 +38,7 @@ import java.util.Locale
 import java.util.zip.ZipInputStream
 
 /**
- * Serviço sempre ligado: ouve a palavra de ativação ("Manel"), depois ouve o pedido,
+ * Serviço sempre ligado: ouve a palavra de ativação ("Hey Tricky"), depois ouve o pedido,
  * responde em voz alta e volta a ficar à escuta.
  */
 class AssistantService : Service() {
@@ -105,12 +105,12 @@ class AssistantService : Service() {
 
     private fun startInForeground() {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Manel", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Tricky", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val n = Notification.Builder(this, CHANNEL)
-            .setContentTitle("Manel")
+            .setContentTitle("Tricky")
             .setContentText("Diz \"${Prefs.wakeWord(this)}\" para falar comigo")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(open)
@@ -148,6 +148,7 @@ class AssistantService : Service() {
             speechFinished()
             return
         }
+        Bus.mode.value = "speaking"
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "manel-${System.currentTimeMillis()}")
     }
 
@@ -155,6 +156,7 @@ class AssistantService : Service() {
         val a = afterSpeak
         afterSpeak = null
         releaseFocus()
+        Bus.mode.value = "idle"
         try { a?.invoke() } catch (_: Exception) { }
         // dar um momento para o som acabar antes de voltar a ouvir
         main.postDelayed({ listenForWakeWord() }, 600)
@@ -219,11 +221,23 @@ class AssistantService : Service() {
 
     // ---------------------------------------------------------------- reconhecimento
 
+    /**
+     * O modelo português não conhece "tricky", por isso usamos palavras portuguesas
+     * que soam parecido ("trico", "trica"…). Para outras palavras usa-se a própria.
+     */
     private fun wakeVariants(): List<String> {
-        val w = Txt.norm(Prefs.wakeWord(this))
-        val list = mutableListOf(w)
-        if (w == "manel") list += listOf("manuel", "manoel")
-        return list.distinct()
+        val w = Txt.norm(Prefs.wakeWord(this)).removePrefix("hey ").removePrefix("ei ").trim()
+        return if (w.contains("trick") || w.contains("triki") || w.contains("trique")) {
+            listOf("trico", "trica", "trigo", "tric", "tique")
+        } else {
+            w.split(" ").filter { it.isNotBlank() }.ifEmpty { listOf("manel") }
+        }
+    }
+
+    private fun wakeGrammar(): String {
+        val v = wakeVariants()
+        val phrases = v + v.map { "ei $it" } + v.map { "ai $it" } + "[unk]"
+        return JSONArray(phrases).toString()
     }
 
     private fun stopRecognition() {
@@ -253,8 +267,8 @@ class AssistantService : Service() {
         val m = model ?: return
         mode = Mode.WAKE
         Bus.status.value = "À escuta — diz \"${Prefs.wakeWord(this)}\""
-        val grammar = JSONArray(wakeVariants() + "[unk]").toString()
-        val rec = Recognizer(m, SAMPLE_RATE, grammar)
+        Bus.mode.value = "idle"
+        val rec = Recognizer(m, SAMPLE_RATE, wakeGrammar())
         rec.setWords(true)
         startRecognition(rec, object : SimpleListener() {
             override fun onResult(hypothesis: String?) {
@@ -270,7 +284,7 @@ class AssistantService : Service() {
         val variants = wakeVariants()
         for (i in 0 until words.length()) {
             val w = words.getJSONObject(i)
-            if (w.optString("word") in variants && w.optDouble("conf", 1.0) >= 0.7) return true
+            if (w.optString("word") in variants && w.optDouble("conf", 1.0) >= 0.65) return true
         }
         return false
     }
@@ -284,6 +298,7 @@ class AssistantService : Service() {
         requestFocus()
         Bus.heard.value = ""
         Bus.status.value = "Diz…"
+        Bus.mode.value = "listening"
         try {
             val tone = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
             tone.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
@@ -320,6 +335,7 @@ class AssistantService : Service() {
         stopRecognition()
         Bus.heard.value = text
         Bus.status.value = "A pensar…"
+        Bus.mode.value = "thinking"
         scope.launch {
             val answer = withContext(Dispatchers.IO) { brain.answer(this@AssistantService, text) }
             if (answer.speech.isNotBlank()) Bus.answer.value = answer.speech

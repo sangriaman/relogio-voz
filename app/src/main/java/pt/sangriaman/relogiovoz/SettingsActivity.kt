@@ -40,9 +40,10 @@ class SettingsActivity : Activity() {
             setBackgroundColor(Color.BLACK)
         }
 
-        val wake = field(box, "Palavra de ativação", Prefs.wakeWord(this))
+        val wake = field(box, "Palavra de ativação (ex.: hey tricky)", Prefs.wakeWord(this))
         val city = field(box, "Cidade para a meteorologia", Prefs.city(this))
         val haUrl = field(box, "Endereço do Home Assistant", Prefs.haUrl(this))
+        val buttons = field(box, "Botões da casa no ecrã inicial (nomes separados por vírgulas)", Prefs.homeButtons(this).joinToString(", "))
         val haToken = field(box, "Token do Home Assistant (perfil → Segurança → Tokens de longa duração)", Prefs.haToken(this), password = true)
 
         box.addView(Button(this).apply {
@@ -52,6 +53,7 @@ class SettingsActivity : Activity() {
                 Prefs.save(this@SettingsActivity, "city", city.text.toString().trim())
                 Prefs.save(this@SettingsActivity, "ha_url", haUrl.text.toString().trim())
                 Prefs.save(this@SettingsActivity, "ha_token", haToken.text.toString().trim())
+                Prefs.save(this@SettingsActivity, "home_buttons", buttons.text.toString().trim())
                 AssistantService.instance?.listenForWakeWord()
                 Toast.makeText(this@SettingsActivity, "Guardado", Toast.LENGTH_SHORT).show()
                 finish()
