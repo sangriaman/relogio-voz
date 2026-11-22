@@ -165,7 +165,7 @@ class AssistantService : Service() {
     private suspend fun loadModel() {
         val dir = File(filesDir, "model")
         try {
-            if (!File(dir, "conf").exists() && !File(dir, "am").exists()) {
+            if (!File(dir, "final.mdl").exists() && !File(dir, "am/final.mdl").exists()) {
                 Bus.status.value = "A descarregar o modelo de voz (≈ 30 MB)…"
                 withContext(Dispatchers.IO) { downloadModel(dir) }
             }
