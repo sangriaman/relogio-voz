@@ -1,0 +1,18 @@
+name: Verificar vocabulario
+on:
+  push:
+    paths: [.github/workflows/vocab.yml]
+jobs:
+  vocab:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -sL -o m.zip https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip
+          unzip -q m.zip
+          find vosk-model-small-pt-0.3 -maxdepth 3 | head -40
+          W=$(find vosk-model-small-pt-0.3 -name words.txt | head -1)
+          echo "words file: $W"; wc -l "$W"
+          for w in hey ei hei ai oi tricky triki triqui trique tric trick trico tricô trigo treque tiquinho tico tique manel manuel; do
+            if grep -qx "$w [0-9]*" "$W"; then echo "SIM $w"; else echo "NAO $w"; fi
+          done
+          grep -E '^tri[a-z]* ' "$W" | head -60
