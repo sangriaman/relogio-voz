@@ -151,7 +151,8 @@ class AssistantService : Service() {
                 ttsProblem = if (hasEspeak) "o eSpeak não arrancou" else "não há nenhuma voz instalada (instala o eSpeak NG)"
             }
         }
-        tts = if (hasEspeak) TextToSpeech(this, listener, ESPEAK) else TextToSpeech(this, listener)
+        // usar sempre o motor escolhido em Definições → Saída de texto para voz
+        tts = TextToSpeech(this, listener)
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) { main.post { if (afterSpeakPending) speechFinished() } }
