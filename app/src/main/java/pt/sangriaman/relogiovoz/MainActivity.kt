@@ -82,6 +82,11 @@ class MainActivity : Activity() {
     // Sendo o ecrã inicial, o botão "voltar" não deve fechar a app.
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) return true
+        // Botão do meio do relógio (KEY_MICMUTE no Linux = KEYCODE_MUTE no Android)
+        if (keyCode == KeyEvent.KEYCODE_MUTE || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
+            if (event?.repeatCount == 0) AssistantService.instance?.listenForCommand()
+            return true
+        }
         return super.onKeyDown(keyCode, event)
     }
 
