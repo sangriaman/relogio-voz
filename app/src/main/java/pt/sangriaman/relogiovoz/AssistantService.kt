@@ -155,9 +155,20 @@ class AssistantService : Service() {
         tts = TextToSpeech(this, listener)
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?) { main.post { if (afterSpeakPending) speechFinished() } }
+            override fun onDone(utteranceId: String?) {
+                main.post {
+                    if (!afterSpeakPending) return@post
+                    if (utteranceId?.startsWith("file-") == true) playBunny(utteranceId) else speechFinished()
+                }
+            }
             @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) { main.post { if (afterSpeakPending) speechFinished() } }
+            override fun onError(utteranceId: String?) {
+                main.post {
+                    if (!afterSpeakPending) return@post
+                    // se gravar para ficheiro falhar, falar diretamente com a voz normal
+                    if (utteranceId?.startsWith("file-") == true) speakPlain(pendingText) else speechFinished()
+                }
+            }
         })
     }
 
@@ -173,15 +184,54 @@ class AssistantService : Service() {
         Bus.mode.value = "speaking"
         val token = ++speakToken
         afterSpeakPending = true
-        val r = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tricky-$token")
+        pendingText = text
+        // rede de segurança: se a voz nunca avisar que acabou, não ficar preso a "falar"
+        main.postDelayed({ if (token == speakToken && afterSpeakPending) speechFinished() }, 8000L + text.length * 120L)
+
+        if (Prefs.bunnyVoice(this)) {
+            // gerar a fala num ficheiro e tocá-la mais aguda: voz de coelhinho
+            val f = java.io.File(cacheDir, "fala.wav")
+            val r = tts?.synthesizeToFile(text, null, f, "file-$token")
+            if (r == TextToSpeech.SUCCESS) return
+        }
+        speakPlain(text)
+    }
+
+    private var pendingText = ""
+    private var player: android.media.MediaPlayer? = null
+
+    private fun speakPlain(text: String) {
+        val r = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tricky-$speakToken")
         if (r != TextToSpeech.SUCCESS) {
-            afterSpeakPending = false
             Bus.status.value = "Sem voz: o motor de voz recusou falar"
             speechFinished()
-            return
         }
-        // rede de segurança: se a voz nunca avisar que acabou, não ficar preso a "falar"
-        main.postDelayed({ if (token == speakToken && afterSpeakPending) speechFinished() }, 4000L + text.length * 90L)
+    }
+
+    private fun playBunny(utteranceId: String) {
+        val f = java.io.File(cacheDir, "fala.wav")
+        try {
+            player?.release()
+            val mp = android.media.MediaPlayer()
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            mp.setDataSource(f.absolutePath)
+            mp.prepare()
+            mp.playbackParams = mp.playbackParams.setPitch(Prefs.bunnyPitch(this)).setSpeed(1.08f)
+            mp.setOnCompletionListener {
+                it.release()
+                if (player === it) player = null
+                if (afterSpeakPending) speechFinished()
+            }
+            player = mp
+            mp.start()
+        } catch (e: Exception) {
+            speakPlain(pendingText)
+        }
     }
 
     private var afterSpeakPending = false
@@ -189,6 +239,8 @@ class AssistantService : Service() {
     private fun speechFinished() {
         afterSpeakPending = false
         speakToken++
+        try { player?.release() } catch (_: Exception) { }
+        player = null
         val a = afterSpeak
         afterSpeak = null
         releaseFocus()

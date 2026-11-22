@@ -177,7 +177,7 @@ class MainActivity : Activity() {
             setOnClickListener { AssistantService.instance?.listenForCommand() }
         }
         bubble = TextView(this).apply {
-            textSize = 13f
+            textSize = 15f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             maxLines = 4
@@ -195,7 +195,7 @@ class MainActivity : Activity() {
         val clock = TextClock(this).apply {
             format24Hour = "HH:mm"
             format12Hour = "HH:mm"
-            textSize = 54f
+            textSize = 48f
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
         }
@@ -307,7 +307,7 @@ class MainActivity : Activity() {
 
     private fun widget(text: String) = TextView(this).apply {
         this.text = text
-        textSize = 14f
+        textSize = 16f
         setTextColor(Color.WHITE)
         setPadding(14, 10, 14, 10)
         background = rounded(card, 14f)
@@ -317,18 +317,18 @@ class MainActivity : Activity() {
     private fun small(label: String, onClick: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
-        textSize = 13f
+        textSize = 17f
         minWidth = 0
         minimumWidth = 0
-        setPadding(18, 0, 18, 0)
+        setPadding(22, 0, 22, 0)
         setOnClickListener { onClick() }
     }
 
     private fun chip(label: String, on: Boolean, onClick: () -> Unit) = TextView(this).apply {
         text = label
-        textSize = 13f
+        textSize = 19f
         setTextColor(if (on) Color.rgb(0, 90, 95) else Color.WHITE)
-        setPadding(16, 10, 16, 10)
+        setPadding(26, 16, 26, 16)
         background = rounded(if (on) accent else card, 30f)
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(

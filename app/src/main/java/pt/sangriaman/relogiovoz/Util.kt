@@ -19,6 +19,9 @@ object Prefs {
     fun homeButtons(c: Context) = p(c).getString("home_buttons", "")!!
         .split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
+    fun bunnyVoice(c: Context) = p(c).getString("bunny", "sim") != "nao"
+    fun bunnyPitch(c: Context) = p(c).getString("bunny_pitch", "1.45")!!.toFloatOrNull()?.coerceIn(0.8f, 2.2f) ?: 1.45f
+
     fun save(c: Context, key: String, value: String) {
         p(c).edit().putString(key, value).apply()
     }

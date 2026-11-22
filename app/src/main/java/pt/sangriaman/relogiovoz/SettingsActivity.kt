@@ -43,6 +43,7 @@ class SettingsActivity : Activity() {
         val wake = field(box, "Palavra de ativação (ex.: hey tricky)", Prefs.wakeWord(this))
         val city = field(box, "Cidade para a meteorologia", Prefs.city(this))
         val haUrl = field(box, "Endereço do Home Assistant", Prefs.haUrl(this))
+        val pitch = field(box, "Voz de coelhinho: quão aguda (1 = normal, 1.45 = coelhinho, 0 = desligada)", if (Prefs.bunnyVoice(this)) Prefs.bunnyPitch(this).toString() else "0")
         val buttons = field(box, "Botões da casa no ecrã inicial (nomes separados por vírgulas)", Prefs.homeButtons(this).joinToString(", "))
         val haToken = field(box, "Token do Home Assistant (perfil → Segurança → Tokens de longa duração)", Prefs.haToken(this), password = true)
 
@@ -54,6 +55,9 @@ class SettingsActivity : Activity() {
                 Prefs.save(this@SettingsActivity, "ha_url", haUrl.text.toString().trim())
                 Prefs.save(this@SettingsActivity, "ha_token", haToken.text.toString().trim())
                 Prefs.save(this@SettingsActivity, "home_buttons", buttons.text.toString().trim())
+                val pv = pitch.text.toString().replace(',', '.').trim().toFloatOrNull() ?: 1.45f
+                Prefs.save(this@SettingsActivity, "bunny", if (pv <= 0f) "nao" else "sim")
+                if (pv > 0f) Prefs.save(this@SettingsActivity, "bunny_pitch", pv.toString())
                 AssistantService.instance?.listenForWakeWord()
                 Toast.makeText(this@SettingsActivity, "Guardado", Toast.LENGTH_SHORT).show()
                 finish()
