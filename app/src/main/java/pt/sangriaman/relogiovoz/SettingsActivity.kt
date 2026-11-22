@@ -37,7 +37,7 @@ class SettingsActivity : Activity() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 16, 24, 16)
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(Color.rgb(0, 110, 112))
         }
 
         val wake = field(box, "Palavra de ativação (ex.: hey tricky)", Prefs.wakeWord(this))
@@ -78,7 +78,7 @@ class SettingsActivity : Activity() {
 
     private fun label(s: String) = TextView(this).apply {
         text = s
-        setTextColor(Color.LTGRAY)
+        setTextColor(Color.rgb(220, 250, 248))
         textSize = 13f
         setPadding(0, 14, 0, 2)
     }

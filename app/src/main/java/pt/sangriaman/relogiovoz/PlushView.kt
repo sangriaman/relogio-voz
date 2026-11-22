@@ -47,15 +47,15 @@ class PlushView(ctx: Context) : View(ctx) {
     }
 
     private val white = fill(Color.rgb(250, 248, 244))
-    private val shade = line(Color.rgb(205, 200, 195))
+    private val shade = line(Color.rgb(170, 175, 175))
     private val pink = fill(Color.rgb(246, 196, 210))
     private val pinkEdge = fill(Color.rgb(252, 226, 233))
     private val nose = fill(Color.rgb(236, 110, 140))
     private val black = fill(Color.rgb(20, 20, 22))
     private val mouth = line(Color.rgb(20, 20, 22))
     private val curl = line(Color.rgb(120, 130, 140))
-    private val glow = fill(Color.argb(70, 120, 200, 255))
-    private val wave = line(Color.rgb(120, 200, 255))
+    private val glow = fill(Color.argb(80, 255, 255, 255))
+    private val wave = line(Color.WHITE)
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()

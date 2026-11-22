@@ -44,8 +44,10 @@ class MainActivity : Activity() {
     private lateinit var homeRow: LinearLayout
     private lateinit var overlayButton: Button
 
-    private val accent = Color.rgb(120, 200, 255)
-    private val card = Color.rgb(28, 30, 38)
+    // fundo turquesa; cartões num turquesa mais escuro para o texto branco se ler bem
+    private val turquoise = Color.rgb(48, 196, 190)
+    private val accent = Color.WHITE
+    private val card = Color.argb(110, 0, 70, 75)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -159,7 +161,7 @@ class MainActivity : Activity() {
     private fun buildUi(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.rgb(12, 13, 18))
+            setBackgroundColor(turquoise)
             setPadding(12, 8, 12, 8)
         }
 
@@ -198,7 +200,7 @@ class MainActivity : Activity() {
             format24Hour = "EEEE, d 'de' MMMM"
             format12Hour = "EEEE, d 'de' MMMM"
             textSize = 14f
-            setTextColor(Color.LTGRAY)
+            setTextColor(Color.WHITE)
         }
         weather = widget("A carregar o tempo…")
         music = widget("")
@@ -274,7 +276,7 @@ class MainActivity : Activity() {
     private fun chip(label: String, on: Boolean, onClick: () -> Unit) = TextView(this).apply {
         text = label
         textSize = 13f
-        setTextColor(if (on) Color.BLACK else Color.WHITE)
+        setTextColor(if (on) Color.rgb(0, 90, 95) else Color.WHITE)
         setPadding(16, 10, 16, 10)
         background = rounded(if (on) accent else card, 30f)
         setOnClickListener { onClick() }

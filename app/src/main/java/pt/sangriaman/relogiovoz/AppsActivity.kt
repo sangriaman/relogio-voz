@@ -29,7 +29,7 @@ class AppsActivity : Activity() {
             numColumns = GridView.AUTO_FIT
             columnWidth = 150
             verticalSpacing = 12
-            setBackgroundColor(Color.rgb(12, 13, 18))
+            setBackgroundColor(Color.rgb(48, 196, 190))
             setPadding(12, 12, 12, 12)
             adapter = object : BaseAdapter() {
                 override fun getCount() = apps.size
