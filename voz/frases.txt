@@ -22,7 +22,7 @@ Para tocar música tens de instalar o NewPipe.
 Não encontrei essa música.
 Vou tocar música!
 Leva o guarda-chuva.
-sem chuva prevista
+Não está prevista chuva.
 Olá! Eu sou o Tricky.
 
 # --- horas e datas

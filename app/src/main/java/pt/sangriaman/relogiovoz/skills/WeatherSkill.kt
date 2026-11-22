@@ -95,16 +95,16 @@ class WeatherSkill : Skill {
             val cur = w.getJSONObject("current")
             val temp = cur.getDouble("temperature_2m").roundToInt()
             sb.append("Em $name ${if (abs(temp) == 1) "está agora" else "estão agora"} ${Words.of(temp)} ${if (abs(temp) == 1) "grau" else "graus"}, ${describe(cur.getInt("weather_code"))}. ")
-            sb.append("Hoje, máxima de ${Words.of(max)} e mínima de ${Words.of(min)}")
+            sb.append("Hoje a máxima é de ${Words.of(max)} e a mínima de ${Words.of(min)}")
         } else {
             val day = if (dayIndex == 1) "Amanhã" else "Depois de amanhã"
-            sb.append("$day em $name: ${describe(code)}, máxima de ${Words.of(max)} e mínima de ${Words.of(min)}")
+            sb.append("$day em $name: ${describe(code)}. A máxima é de ${Words.of(max)} e a mínima de ${Words.of(min)}")
         }
         sb.append(
             when {
-                rain >= 60 -> ", com ${Words.of(rain)} por cento de probabilidade de chuva. Leva o guarda-chuva."
-                rain >= 20 -> ", com ${Words.of(rain)} por cento de probabilidade de chuva."
-                else -> ", sem chuva prevista."
+                rain >= 60 -> ". Com ${Words.of((rain + 2) / 5 * 5)} por cento de probabilidade de chuva. Leva o guarda-chuva."
+                rain >= 20 -> ". Com ${Words.of((rain + 2) / 5 * 5)} por cento de probabilidade de chuva."
+                else -> ". Não está prevista chuva."
             }
         )
         return sb.toString()

@@ -56,7 +56,7 @@ object ClipVoice {
                 }
                 if (found == null) return null
                 i += len
-                parts += found to (if (i < seg.size) 40 else if (si < segments.size - 1) 260 else 0)
+                parts += found to (if (i < seg.size) 0 else if (si < segments.size - 1) 180 else 0)
             }
         }
 
