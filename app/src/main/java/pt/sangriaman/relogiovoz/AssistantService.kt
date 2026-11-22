@@ -176,6 +176,17 @@ class AssistantService : Service() {
 
     private fun say(text: String, then: (() -> Unit)?) {
         afterSpeak = then
+        // 1.º: voz gravada (tugão), se a frase toda existir nas gravações
+        val clip = if (text.isBlank()) null else try { ClipVoice.build(this, text) } catch (_: Exception) { null }
+        if (clip != null) {
+            Bus.mode.value = "speaking"
+            val token = ++speakToken
+            afterSpeakPending = true
+            pendingText = text
+            main.postDelayed({ if (token == speakToken && afterSpeakPending) speechFinished() }, 8000L + text.length * 120L)
+            playFile(clip)
+            return
+        }
         if (text.isBlank() || !ttsReady) {
             if (text.isNotBlank() && ttsProblem != null) Bus.status.value = "Sem voz: $ttsProblem"
             speechFinished()
@@ -208,8 +219,9 @@ class AssistantService : Service() {
         }
     }
 
-    private fun playBunny(utteranceId: String) {
-        val f = java.io.File(cacheDir, "fala.wav")
+    private fun playBunny(utteranceId: String) = playFile(java.io.File(cacheDir, "fala.wav"))
+
+    private fun playFile(f: java.io.File) {
         try {
             player?.release()
             val mp = android.media.MediaPlayer()
@@ -221,7 +233,8 @@ class AssistantService : Service() {
             )
             mp.setDataSource(f.absolutePath)
             mp.prepare()
-            mp.playbackParams = mp.playbackParams.setPitch(Prefs.bunnyPitch(this)).setSpeed(1.08f)
+            val pitch = if (Prefs.bunnyVoice(this)) Prefs.bunnyPitch(this) else 1f
+            mp.playbackParams = mp.playbackParams.setPitch(pitch).setSpeed(if (pitch > 1.05f) 1.08f else 1f)
             mp.setOnCompletionListener {
                 it.release()
                 if (player === it) player = null

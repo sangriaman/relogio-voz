@@ -29,7 +29,7 @@ class Brain {
         val t = Txt.tokens(raw)
         if (t.isEmpty()) return Answer("Não ouvi nada.")
         val skill = skills.firstOrNull { it.matches(n, t) }
-            ?: return Answer("Não sei fazer isso. Posso dizer as horas, o tempo, pesquisar, tocar música ou ligar aparelhos.")
+            ?: return Answer("Não sei fazer isso. Posso dizer as horas, o tempo, pesquisar ou tocar música.")
         return try {
             skill.handle(ctx, n, t, raw)
         } catch (e: java.io.IOException) {

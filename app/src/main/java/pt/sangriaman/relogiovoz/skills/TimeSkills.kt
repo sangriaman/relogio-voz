@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
 import pt.sangriaman.relogiovoz.PtNumbers
+import pt.sangriaman.relogiovoz.Words
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.TextStyle
@@ -22,7 +23,7 @@ class ClockSkill : Skill {
             val d = LocalDate.now()
             val dow = d.dayOfWeek.getDisplayName(TextStyle.FULL, PT)
             val month = d.month.getDisplayName(TextStyle.FULL, PT)
-            return Answer("Hoje é $dow, ${d.dayOfMonth} de $month.")
+            return Answer("Hoje é $dow, ${Words.of(d.dayOfMonth)} de $month.")
         }
         val now = LocalTime.now()
         val h = now.hour
@@ -32,13 +33,13 @@ class ClockSkill : Skill {
             1 -> "É uma hora"
             12 -> "É meio-dia"
             13 -> "É uma hora"
-            else -> "São ${if (h > 12) h - 12 else h} horas"
+            else -> "São ${Words.of(if (h > 12) h - 12 else h, true)} horas"
         }
         val mins = when (m) {
             0 -> ""
             1 -> " e um minuto"
             30 -> " e meia"
-            else -> " e $m"
+            else -> " e ${Words.of(m)}"
         }
         val period = when (h) {
             in 1..11 -> " da manhã"
@@ -94,7 +95,7 @@ class TimerSkill : Skill {
             ctx.startActivity(intent)
             Answer("Temporizador de ${describe(seconds)} a contar.")
         } catch (e: Exception) {
-            Answer("Não consegui criar o temporizador. Confirma que o Tricky pode abrir outras apps.")
+            Answer("Não consegui criar o temporizador.")
         }
     }
 
@@ -103,9 +104,9 @@ class TimerSkill : Skill {
         val m = (s % 3600) / 60
         val sec = s % 60
         val parts = mutableListOf<String>()
-        if (h > 0) parts += if (h == 1) "uma hora" else "$h horas"
-        if (m > 0) parts += if (m == 1) "um minuto" else "$m minutos"
-        if (sec > 0) parts += if (sec == 1) "um segundo" else "$sec segundos"
+        if (h > 0) parts += if (h == 1) "uma hora" else "${Words.of(h, true)} horas"
+        if (m > 0) parts += if (m == 1) "um minuto" else "${Words.of(m)} minutos"
+        if (sec > 0) parts += if (sec == 1) "um segundo" else "${Words.of(sec)} segundos"
         return parts.joinToString(" e ")
     }
 }
@@ -146,9 +147,9 @@ class AlarmSkill : Skill {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             ctx.startActivity(intent)
-            Answer("Alarme marcado para as $hour${if (minute > 0) " e $minute" else ""}.")
+            Answer("Alarme marcado para ${if (hour == 1 || hour == 13) "a" else "as"} ${Words.of(if (hour > 12) hour - 12 else if (hour == 0) 12 else hour, true)}${if (minute > 0) " e ${Words.of(minute)}" else ""}.")
         } catch (e: Exception) {
-            Answer("Não consegui marcar o alarme. Confirma que o Tricky pode abrir outras apps.")
+            Answer("Não consegui marcar o alarme.")
         }
     }
 }

@@ -1,0 +1,168 @@
+# Frases e palavras que o Tricky diz com a voz "tugão" (uma por linha).
+# A app junta-as para formar as respostas. Linhas começadas por # são ignoradas.
+
+# --- frases completas
+Não ouvi nada.
+Não sei fazer isso. Posso dizer as horas, o tempo, pesquisar ou tocar música.
+Não consegui ligar à internet.
+Não percebi a duração. Diz, por exemplo, temporizador de dez minutos.
+Não consegui criar o temporizador.
+A que horas? Diz, por exemplo, acorda-me às sete e meia.
+Essa hora não é válida.
+Não consegui marcar o alarme.
+Não encontrei essa localidade.
+O que queres que pesquise?
+Vou procurar no Google.
+O que queres ouvir?
+Que rádio queres ouvir?
+Não consegui contactar o serviço de rádios.
+Não encontrei essa rádio.
+Vou ligar a rádio!
+Para tocar música tens de instalar o NewPipe.
+Não encontrei essa música.
+Vou tocar música!
+Leva o guarda-chuva.
+sem chuva prevista
+Olá! Eu sou o Tricky.
+
+# --- horas e datas
+Hoje
+Hoje é
+É meia-noite
+É meio-dia
+É uma hora
+São
+horas
+hora
+e um minuto
+e meia
+da manhã
+da tarde
+da noite
+de
+segunda-feira
+terça-feira
+quarta-feira
+quinta-feira
+sexta-feira
+sábado
+domingo
+janeiro
+fevereiro
+março
+abril
+maio
+junho
+julho
+agosto
+setembro
+outubro
+novembro
+dezembro
+
+# --- temporizador e alarme
+Temporizador de
+a contar
+minuto
+minutos
+segundo
+segundos
+Alarme marcado para a
+Alarme marcado para as
+
+# --- tempo
+Em
+estão agora
+está agora
+graus
+grau
+Hoje, máxima de
+máxima de
+e mínima de
+com
+por cento de probabilidade de chuva
+Amanhã em
+Depois de amanhã em
+menos
+céu limpo
+céu pouco nublado
+céu parcialmente nublado
+céu encoberto
+nevoeiro
+chuviscos
+chuviscos gelados
+chuva fraca
+chuva
+chuva forte
+chuva gelada
+neve
+aguaceiros fracos
+aguaceiros
+aguaceiros fortes
+aguaceiros de neve
+trovoada
+trovoada com granizo
+tempo variável
+
+# --- localidades
+Ronfe
+Guimarães
+Braga
+Porto
+Lisboa
+Coimbra
+Aveiro
+Faro
+Viseu
+Leiria
+Évora
+Setúbal
+Fafe
+Vizela
+Barcelos
+Vila Nova de Famalicão
+Póvoa de Varzim
+Vila do Conde
+Viana do Castelo
+Santo Tirso
+Felgueiras
+Amarante
+Funchal
+Ponta Delgada
+Madrid
+Paris
+Londres
+
+# --- números
+e
+zero
+um
+uma
+dois
+duas
+três
+quatro
+cinco
+seis
+sete
+oito
+nove
+dez
+onze
+doze
+treze
+catorze
+quinze
+dezasseis
+dezassete
+dezoito
+dezanove
+vinte
+trinta
+quarenta
+cinquenta
+sessenta
+setenta
+oitenta
+noventa
+cem

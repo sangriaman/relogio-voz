@@ -4,7 +4,9 @@ import android.content.Context
 import org.json.JSONObject
 import pt.sangriaman.relogiovoz.Http
 import pt.sangriaman.relogiovoz.Prefs
+import pt.sangriaman.relogiovoz.Words
 import java.net.URLEncoder
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Meteorologia através do Open-Meteo (gratuito, sem chave). */
@@ -24,7 +26,7 @@ class WeatherSkill : Skill {
             ?: Prefs.city(ctx)
 
         val f = fetch(city)
-            ?: return Answer("Não encontrei a localidade $city.")
+            ?: return Answer("Não encontrei essa localidade.")
         val name = f.name
         val w = f.json
         return Answer(speak(name, w, dayIndex))
@@ -92,16 +94,16 @@ class WeatherSkill : Skill {
         if (dayIndex == 0) {
             val cur = w.getJSONObject("current")
             val temp = cur.getDouble("temperature_2m").roundToInt()
-            sb.append("Em $name estão agora $temp graus, ${describe(cur.getInt("weather_code"))}. ")
-            sb.append("Hoje, máxima de $max e mínima de $min")
+            sb.append("Em $name ${if (abs(temp) == 1) "está agora" else "estão agora"} ${Words.of(temp)} ${if (abs(temp) == 1) "grau" else "graus"}, ${describe(cur.getInt("weather_code"))}. ")
+            sb.append("Hoje, máxima de ${Words.of(max)} e mínima de ${Words.of(min)}")
         } else {
             val day = if (dayIndex == 1) "Amanhã" else "Depois de amanhã"
-            sb.append("$day em $name: ${describe(code)}, máxima de $max e mínima de $min")
+            sb.append("$day em $name: ${describe(code)}, máxima de ${Words.of(max)} e mínima de ${Words.of(min)}")
         }
         sb.append(
             when {
-                rain >= 60 -> ", com $rain por cento de probabilidade de chuva. Leva o guarda-chuva."
-                rain >= 20 -> ", com $rain por cento de probabilidade de chuva."
+                rain >= 60 -> ", com ${Words.of(rain)} por cento de probabilidade de chuva. Leva o guarda-chuva."
+                rain >= 20 -> ", com ${Words.of(rain)} por cento de probabilidade de chuva."
                 else -> ", sem chuva prevista."
             }
         )

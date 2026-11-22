@@ -131,11 +131,11 @@ class MusicSkill : Skill {
             }
         }
         if (arr == null) return Answer("Não consegui contactar o serviço de rádios.")
-        if (arr.length() == 0) return Answer("Não encontrei a rádio $name.")
+        if (arr.length() == 0) return Answer("Não encontrei essa rádio.")
         val st = arr.getJSONObject(0)
         val url = st.optString("url_resolved").ifBlank { st.optString("url") }
         val stName = st.optString("name", name).trim()
-        return Answer("A ligar a $stName.") {
+        return Answer("Vou ligar a rádio!") {
             sendMediaKey(ctx, KeyEvent.KEYCODE_MEDIA_PAUSE) // parar o NewPipe se estiver a tocar
             Radio.play(ctx, url, stName)
             Bus.nowPlaying.value = "📻 $stName"
@@ -144,7 +144,7 @@ class MusicSkill : Skill {
 
     private fun youtube(ctx: Context, q: String): Answer {
         val installed = try { ctx.packageManager.getPackageInfo(NEWPIPE, 0); true } catch (_: Exception) { false }
-        if (!installed) return Answer("Para tocar música do YouTube tens de instalar o NewPipe.")
+        if (!installed) return Answer("Para tocar música tens de instalar o NewPipe.")
 
         ensureNewPipe()
         val yt = ServiceList.YouTube
@@ -158,12 +158,12 @@ class MusicSkill : Skill {
             } catch (_: Exception) {
             }
         }
-        if (item == null) return Answer("Não encontrei $q no YouTube.")
+        if (item == null) return Answer("Não encontrei essa música.")
         val id = Regex("[?&]v=([A-Za-z0-9_-]{11})").find(item.url)?.groupValues?.get(1)
         val url = if (id != null) "https://www.youtube.com/watch?v=$id" else item.url
         val who = item.uploaderName?.removeSuffix(" - Topic")?.takeIf { it.isNotBlank() }
         val title = item.name
-        return Answer("A tocar $title${if (who != null) ", de $who" else ""}.") {
+        return Answer("Vou tocar música!") {
             Radio.stop()
             Bus.nowPlaying.value = "🎵 $title${if (who != null) " — $who" else ""}"
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))

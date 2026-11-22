@@ -38,7 +38,7 @@ class SearchSkill : Skill {
             val summary = try { wikipedia(q) } catch (e: Exception) { null }
             if (summary != null) return Answer(summary)
         }
-        return Answer("A abrir a pesquisa de $q no Google.") { openGoogle(ctx, q) }
+        return Answer("Vou procurar no Google.") { openGoogle(ctx, q) }
     }
 
     private fun wikipedia(q: String): String? {
