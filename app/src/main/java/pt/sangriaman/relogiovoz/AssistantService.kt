@@ -86,6 +86,16 @@ class AssistantService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "manel:escuta").apply { acquire() }
         setupTts()
         scope.launch { loadModel() }
+        // verificar atualizações 1 minuto depois de arrancar e depois de 6 em 6 horas
+        scope.launch {
+            kotlinx.coroutines.delay(60_000L)
+            while (true) {
+                if (mode == Mode.WAKE || mode == Mode.LOADING) {
+                    withContext(Dispatchers.IO) { try { Updater.checkAndInstall(this@AssistantService) } catch (_: Exception) { } }
+                }
+                kotlinx.coroutines.delay(6 * 60 * 60 * 1000L)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
@@ -124,35 +134,60 @@ class AssistantService : Service() {
 
     // ---------------------------------------------------------------- voz (saída)
 
+    private val ESPEAK = "com.reecedunn.espeak"
+    private var ttsProblem: String? = null
+
     private fun setupTts() {
-        tts = TextToSpeech(this) { status ->
+        // usar o eSpeak NG diretamente, se existir (não depende da voz predefinida do sistema)
+        val hasEspeak = try { packageManager.getPackageInfo(ESPEAK, 0); true } catch (_: Exception) { false }
+        val listener = TextToSpeech.OnInitListener { status ->
             if (status == TextToSpeech.SUCCESS) {
-                val r = tts?.setLanguage(Locale("pt", "PT"))
-                if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    tts?.setLanguage(Locale("pt"))
-                }
+                var r = tts?.setLanguage(Locale("pt", "PT")) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                if (r < TextToSpeech.LANG_AVAILABLE) r = tts?.setLanguage(Locale("pt")) ?: r
+                if (r < TextToSpeech.LANG_AVAILABLE) r = tts?.setLanguage(Locale("pt", "BR")) ?: r
+                ttsProblem = if (r < TextToSpeech.LANG_AVAILABLE) "a voz não tem português" else null
                 ttsReady = true
+            } else {
+                ttsProblem = if (hasEspeak) "o eSpeak não arrancou" else "não há nenhuma voz instalada (instala o eSpeak NG)"
             }
         }
+        tts = if (hasEspeak) TextToSpeech(this, listener, ESPEAK) else TextToSpeech(this, listener)
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?) { main.post { speechFinished() } }
+            override fun onDone(utteranceId: String?) { main.post { if (afterSpeakPending) speechFinished() } }
             @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) { main.post { speechFinished() } }
+            override fun onError(utteranceId: String?) { main.post { if (afterSpeakPending) speechFinished() } }
         })
     }
+
+    private var speakToken = 0
 
     private fun say(text: String, then: (() -> Unit)?) {
         afterSpeak = then
         if (text.isBlank() || !ttsReady) {
+            if (text.isNotBlank() && ttsProblem != null) Bus.status.value = "Sem voz: $ttsProblem"
             speechFinished()
             return
         }
         Bus.mode.value = "speaking"
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "manel-${System.currentTimeMillis()}")
+        val token = ++speakToken
+        afterSpeakPending = true
+        val r = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tricky-$token")
+        if (r != TextToSpeech.SUCCESS) {
+            afterSpeakPending = false
+            Bus.status.value = "Sem voz: o motor de voz recusou falar"
+            speechFinished()
+            return
+        }
+        // rede de segurança: se a voz nunca avisar que acabou, não ficar preso a "falar"
+        main.postDelayed({ if (token == speakToken && afterSpeakPending) speechFinished() }, 4000L + text.length * 90L)
     }
 
+    private var afterSpeakPending = false
+
     private fun speechFinished() {
+        afterSpeakPending = false
+        speakToken++
         val a = afterSpeak
         afterSpeak = null
         releaseFocus()
@@ -160,6 +195,14 @@ class AssistantService : Service() {
         try { a?.invoke() } catch (_: Exception) { }
         // dar um momento para o som acabar antes de voltar a ouvir
         main.postDelayed({ listenForWakeWord() }, 600)
+        // limpar o balão passado algum tempo, para voltar a mostrar o estado
+        val shown = Bus.answer.value
+        main.postDelayed({
+            if (Bus.answer.value == shown && mode == Mode.WAKE) {
+                Bus.answer.value = ""
+                Bus.heard.value = ""
+            }
+        }, 20_000L)
     }
 
     // ---------------------------------------------------------------- modelo de voz

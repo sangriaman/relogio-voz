@@ -63,7 +63,7 @@ class SettingsActivity : Activity() {
         val version = packageManager.getPackageInfo(packageName, 0).versionName
         box.addView(label("Versão instalada: $version"))
         box.addView(Button(this).apply {
-            text = "Atualizar a app (descarregar a última versão)"
+            text = "Procurar atualização agora (é automática a cada 6 horas)"
             isAllCaps = false
             setOnClickListener { update(this) }
         })
@@ -97,28 +97,11 @@ class SettingsActivity : Activity() {
 
     private fun update(button: View) {
         button.isEnabled = false
-        Toast.makeText(this, "A descarregar…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "A verificar…", Toast.LENGTH_SHORT).show()
         scope.launch {
-            try {
-                val file = File(cacheDir, "relogio-voz.apk")
-                withContext(Dispatchers.IO) {
-                    val req = Request.Builder().url(UPDATE_URL).header("User-Agent", Http.UA).build()
-                    Http.client.newCall(req).execute().use { r ->
-                        if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")
-                        file.outputStream().use { out -> r.body!!.byteStream().copyTo(out) }
-                    }
-                }
-                val uri = FileProvider.getUriForFile(this@SettingsActivity, "$packageName.files", file)
-                startActivity(
-                    Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(uri, "application/vnd.android.package-archive")
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            } catch (e: Exception) {
-                Toast.makeText(this@SettingsActivity, "Falhou: ${e.message}", Toast.LENGTH_LONG).show()
-            } finally {
-                button.isEnabled = true
-            }
+            val msg = withContext(Dispatchers.IO) { Updater.checkAndInstall(this@SettingsActivity) }
+            Toast.makeText(this@SettingsActivity, msg, Toast.LENGTH_LONG).show()
+            button.isEnabled = true
         }
     }
 }
