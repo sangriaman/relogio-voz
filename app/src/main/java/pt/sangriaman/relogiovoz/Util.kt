@@ -16,7 +16,7 @@ object Prefs {
     fun haUrl(c: Context) = p(c).getString("ha_url", "http://192.168.1.109")!!.trimEnd('/')
     fun haToken(c: Context) = p(c).getString("ha_token", "")!!.trim()
     /** nomes dos aparelhos que aparecem como botões no ecrã inicial */
-    fun homeButtons(c: Context) = p(c).getString("home_buttons", "resistência")!!
+    fun homeButtons(c: Context) = p(c).getString("home_buttons", "")!!
         .split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
     fun save(c: Context, key: String, value: String) {

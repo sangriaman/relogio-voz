@@ -228,7 +228,7 @@ class AssistantService : Service() {
     private fun wakeVariants(): List<String> {
         val w = Txt.norm(Prefs.wakeWord(this)).removePrefix("hey ").removePrefix("ei ").trim()
         return if (w.contains("trick") || w.contains("triki") || w.contains("trique")) {
-            listOf("trico", "trica", "trigo", "tric", "tique")
+            listOf("trico", "trica", "trigo", "tric", "tique", "tico", "tica", "rico", "rica", "trinca", "truque", "trique")
         } else {
             w.split(" ").filter { it.isNotBlank() }.ifEmpty { listOf("manel") }
         }
@@ -271,8 +271,19 @@ class AssistantService : Service() {
         val rec = Recognizer(m, SAMPLE_RATE, wakeGrammar())
         rec.setWords(true)
         startRecognition(rec, object : SimpleListener() {
+            override fun onPartialResult(hypothesis: String?) {
+                val p = hypothesis?.let { JSONObject(it).optString("partial") } ?: ""
+                if (mode == Mode.WAKE && p.isNotBlank() && wakeVariants().any { v -> p.split(" ").contains(v) }) {
+                    main.post { listenForCommand() }
+                }
+            }
+
             override fun onResult(hypothesis: String?) {
-                if (mode == Mode.WAKE && isWake(hypothesis)) main.post { listenForCommand() }
+                if (mode != Mode.WAKE) return
+                val text = hypothesis?.let { JSONObject(it).optString("text") } ?: ""
+                // mostrar o que percebeu ajuda a afinar a palavra de ativação
+                if (text.isNotBlank() && text != "[unk]") main.post { Bus.status.value = "Ouvi \"$text\" — diz \"${Prefs.wakeWord(this@AssistantService)}\"" }
+                if (isWake(hypothesis)) main.post { listenForCommand() }
             }
         }, null)
     }
@@ -284,7 +295,7 @@ class AssistantService : Service() {
         val variants = wakeVariants()
         for (i in 0 until words.length()) {
             val w = words.getJSONObject(i)
-            if (w.optString("word") in variants && w.optDouble("conf", 1.0) >= 0.65) return true
+            if (w.optString("word") in variants && w.optDouble("conf", 1.0) >= 0.45) return true
         }
         return false
     }
@@ -328,6 +339,13 @@ class AssistantService : Service() {
                 }
             }, 8000)
         }, 250)
+    }
+
+    /** Pedido vindo de um botão do ecrã (sem voz). */
+    fun runText(text: String) {
+        if (mode == Mode.BUSY || model == null && text.isBlank()) return
+        stopRecognition()
+        handleCommand(text)
     }
 
     private fun handleCommand(text: String) {

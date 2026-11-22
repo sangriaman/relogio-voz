@@ -62,7 +62,6 @@ class MainActivity : Activity() {
             Bus.nowPlaying.collect { music.text = if (it.isBlank()) "🎵 Diz \"toca…\" para ouvir música" else it }
         }
         scope.launch { weatherLoop() }
-        scope.launch { homeLoop() }
 
         askPermissions()
     }
@@ -71,7 +70,6 @@ class MainActivity : Activity() {
         super.onResume()
         overlayButton.visibility = if (Settings.canDrawOverlays(this)) View.GONE else View.VISIBLE
         if (hasMic()) AssistantService.start(this)
-        scope.launch { refreshHome() }
     }
 
     override fun onDestroy() {
@@ -239,15 +237,63 @@ class MainActivity : Activity() {
         right.addView(clock)
         right.addView(date)
         right.addView(weather, margins())
+        right.addView(quickRow(), margins())
         right.addView(music, margins())
         right.addView(musicControls)
-        right.addView(homeRow, margins())
         right.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
         right.addView(bottom)
 
         root.addView(left, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
         root.addView(right, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.25f))
         return root
+    }
+
+    /** Botões de pedidos rápidos para quem não quer (ou não consegue) falar. */
+    private fun quickRow(): View {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun ask(text: String) {
+            val s = AssistantService.instance
+            if (s == null) Bus.status.value = "O Tricky ainda está a acordar…" else s.runText(text)
+        }
+        row.addView(chip("☀️ Tempo", false) { ask("como está o tempo") })
+        row.addView(chip("🕐 Horas", false) { ask("que horas são") })
+        row.addView(chip("🎵 Música", false) { musicDialog { ask("toca $it") } })
+        row.addView(chip("📻 Rádio", false) { radioDialog { ask("põe a rádio $it") } })
+        return android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
+        }
+    }
+
+    private fun musicDialog(onPick: (String) -> Unit) {
+        val presets = arrayOf("Músicas infantis", "Canções de embalar", "Panda e os Caricas", "Xana Toc Toc", "Músicas da Disney", "✏️ Escrever…")
+        android.app.AlertDialog.Builder(this)
+            .setTitle("O que queres ouvir?")
+            .setItems(presets) { _, i ->
+                if (i == presets.lastIndex) typeDialog("Que música?", onPick) else onPick(presets[i])
+            }
+            .show()
+    }
+
+    private fun radioDialog(onPick: (String) -> Unit) {
+        val presets = arrayOf("Comercial", "RFM", "Cidade FM", "Mega Hits", "Antena 1", "Renascença")
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Que rádio?")
+            .setItems(presets) { _, i -> onPick(presets[i]) }
+            .show()
+    }
+
+    private fun typeDialog(title: String, onPick: (String) -> Unit) {
+        val input = android.widget.EditText(this)
+        android.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton("Tocar") { _, _ ->
+                val t = input.text.toString().trim()
+                if (t.isNotEmpty()) onPick(t)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     private fun margins() = LinearLayout.LayoutParams(
