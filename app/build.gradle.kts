@@ -76,12 +76,13 @@ dependencies {
     implementation("com.alphacephei:vosk-android:0.3.47@aar")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
 
-    // Rádios
+    // Rádios e áudio do YouTube
     implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
 
     // HTTP
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Pesquisa no YouTube Music (a reprodução é feita pelo NewPipe)
+    // Pesquisa e extração de áudio do YouTube
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.27.1")
 }

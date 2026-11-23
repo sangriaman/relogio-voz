@@ -15,9 +15,9 @@ Diz **"Hey Tricky"**, espera pelo bip e pede:
 | Meteorologia | "Como está o tempo?", "Vai chover amanhã em Braga?" |
 | Pesquisa | "O que é a fotossíntese?", "Pesquisa no Google receitas de bacalhau" |
 | Home Assistant | "Liga a resistência", "Desliga a tomada" |
-| Música (YouTube, via NewPipe) | "Toca Xutos e Pontapés" |
+| Música (YouTube) | "Toca Xutos e Pontapés" |
 | Rádios | "Põe a Rádio Comercial", "Toca a rádio Antena um" |
-| Controlo | "Pára", "Continua", "Próxima", "Mais alto", "Mais baixo" |
+| Controlo | "Pára", "Continua", "Próxima", "Anterior", "Mais alto", "Volume a 50 por cento" |
 
 ## Instalar
 
@@ -34,7 +34,5 @@ Na primeira vez a app descarrega o modelo de voz (~30 MB).
 
 - Uma voz de síntese em português (ex.: eSpeak NG ou RHVoice), escolhida em
   Definições → Sistema → Idiomas → Saída de texto para voz.
-- **NewPipe** (F-Droid) para a música do YouTube, com
-  Definições → Comportamento → "Ação predefinida ao abrir conteúdo" = **Reprodutor em segundo plano**.
-- Permissão "Mostrar sobre outras apps" para o Manel (para abrir alarmes, o browser e o NewPipe).
+- Permissão "Mostrar sobre outras apps" para o Tricky (para abrir alarmes e o browser).
 - Para o Home Assistant: endereço e token de longa duração nas definições da app.

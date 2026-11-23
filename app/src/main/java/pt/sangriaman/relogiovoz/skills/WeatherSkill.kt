@@ -4,15 +4,33 @@ import android.content.Context
 import org.json.JSONObject
 import pt.sangriaman.relogiovoz.Http
 import pt.sangriaman.relogiovoz.Prefs
+import pt.sangriaman.relogiovoz.Txt
 import pt.sangriaman.relogiovoz.Words
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Meteorologia através do Open-Meteo (gratuito, sem chave). */
 class WeatherSkill : Skill {
-    override fun matches(n: String, t: List<String>) =
-        t.hasAny("tempo", "meteorologia", "chover", "chove", "chuva", "temperatura", "previsao", "calor", "frio", "graus")
+    override fun score(n: String, t: List<String>): Int {
+        // não colidir com perguntas sobre temporizadores ("quanto tempo falta")
+        if (n.contains("quanto tempo") || n.contains("ha quanto tempo") || n.contains("tempo falta") ||
+            t.hasAny("temporizador", "cronometro")
+        ) return 0
+
+        if (t.hasAny("meteorologia", "previsao", "chover", "chove", "chuva", "temperatura", "graus")) return 90
+        if (n.contains("como esta o tempo") || n.contains("que tempo") || n.contains("qual o tempo") ||
+            n.contains("qual e o tempo") || n.contains("tempo hoje") || n.contains("tempo amanha")
+        ) return 85
+        if (t.hasAny("calor", "frio")) {
+            return if (t.hasAny("faz", "esta", "vai", "hoje", "amanha", "agora")) 80 else 60
+        }
+        if ("tempo" in t) {
+            return if (LOCATION_REGEX.containsMatchIn(n) || t.hasAny("hoje", "amanha", "agora")) 80 else 50
+        }
+        return 0
+    }
 
     override suspend fun handle(ctx: Context, n: String, t: List<String>, raw: String): Answer {
         val dayIndex = when {
@@ -20,45 +38,78 @@ class WeatherSkill : Skill {
             n.contains("amanha") -> 1
             else -> 0
         }
-        val city = Regex("\\bem ([a-z ]+)").find(n)?.groupValues?.get(1)
-            ?.replace(Regex("\\b(hoje|amanha|depois de amanha|agora)\\b"), "")
+        val city = LOCATION_REGEX.find(n)?.groupValues?.get(2)
+            ?.replace(TIME_NOISE_REGEX, "")
+            ?.replace(MULTI_SPACE, " ")
             ?.trim()?.takeIf { it.isNotBlank() }
             ?: Prefs.city(ctx)
 
         val f = fetch(city)
             ?: return Answer("Não encontrei essa localidade.")
-        val name = f.name
-        val w = f.json
-        return Answer(speak(name, w, dayIndex))
+        return Answer(speak(f.name, f.json, dayIndex))
     }
 
     companion object {
+        private const val CACHE_TTL_MS = 10 * 60 * 1000L
+        private val LOCATION_REGEX = Regex("\\b(em|no|na|nos|nas)\\s+([a-z ]+)")
+        private val TIME_NOISE_REGEX =
+            Regex("\\b(depois de amanha|fim de semana|esta semana|amanha|hoje|agora|manha|tarde|noite|madrugada|semana)\\b")
+        private val MULTI_SPACE = Regex("\\s+")
+
+        private data class GeoPlace(val name: String, val lat: Double, val lon: Double)
+        private data class Cached<T>(val value: T, val timeMs: Long)
+
+        private val geoCache = ConcurrentHashMap<String, Cached<GeoPlace>>()
+        private val forecastCache = ConcurrentHashMap<String, Cached<Forecast>>()
+
         class Forecast(val name: String, val json: JSONObject)
 
         /** Previsão para uma localidade (chamar fora da thread principal). */
         fun fetch(city: String): Forecast? {
-        val geo = JSONObject(
-            Http.get(
-                "https://geocoding-api.open-meteo.com/v1/search?count=1&language=pt&format=json&name=" +
-                    URLEncoder.encode(city, "UTF-8")
-            )
-        )
-        val results = geo.optJSONArray("results")
-        if (results == null || results.length() == 0) return null
-        val place = results.getJSONObject(0)
-        val name = place.optString("name", city)
-        val lat = place.getDouble("latitude")
-        val lon = place.getDouble("longitude")
+            val now = System.currentTimeMillis()
+            val key = Txt.norm(city).ifBlank { return null }
 
-        val w = JSONObject(
-            Http.get(
-                "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
-                    "&current=temperature_2m,weather_code" +
-                    "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
-                    "&timezone=auto&forecast_days=3"
+            forecastCache[key]?.let { c ->
+                if (now - c.timeMs < CACHE_TTL_MS) return c.value
+            }
+
+            val place = geoCache[key]?.takeIf { now - it.timeMs < CACHE_TTL_MS }?.value
+                ?: resolvePlace(city)?.also { geoCache[key] = Cached(it, now) }
+                ?: return null
+
+            val w = JSONObject(
+                Http.get(
+                    "https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}" +
+                        "&current=temperature_2m,weather_code" +
+                        "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+                        "&timezone=auto&forecast_days=3"
+                )
             )
-        )
-        return Forecast(name, w)
+            return Forecast(place.name, w).also { forecastCache[key] = Cached(it, now) }
+        }
+
+        private fun resolvePlace(city: String): GeoPlace? {
+            val geo = JSONObject(
+                Http.get(
+                    "https://geocoding-api.open-meteo.com/v1/search?count=5&language=pt&format=json&name=" +
+                        URLEncoder.encode(city, "UTF-8")
+                )
+            )
+            val results = geo.optJSONArray("results")
+            if (results == null || results.length() == 0) return null
+            var chosen = results.getJSONObject(0)
+            for (i in 0 until results.length()) {
+                val r = results.getJSONObject(i)
+                if (r.optString("country_code").equals("PT", ignoreCase = true)) {
+                    chosen = r
+                    break
+                }
+            }
+            return GeoPlace(
+                name = chosen.optString("name", city),
+                lat = chosen.getDouble("latitude"),
+                lon = chosen.getDouble("longitude")
+            )
         }
 
         /** Linha curta para o widget do ecrã inicial. */

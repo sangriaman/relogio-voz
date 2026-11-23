@@ -18,10 +18,13 @@ import android.os.Looper
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -35,6 +38,7 @@ import pt.sangriaman.relogiovoz.skills.Radio
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
 /**
@@ -44,6 +48,7 @@ import java.util.zip.ZipInputStream
 class AssistantService : Service() {
 
     companion object {
+        private const val TAG = "AssistantService"
         const val MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip"
         private const val CHANNEL = "manel"
         private const val SAMPLE_RATE = 16000f
@@ -66,7 +71,13 @@ class AssistantService : Service() {
     private var model: Model? = null
     private var speech: SpeechService? = null
     private var recognizer: Recognizer? = null
-    private var mode = Mode.LOADING
+    private val recLock = Any()
+    @Volatile private var mode = Mode.LOADING
+    @Volatile private var destroyed = false
+    @Volatile private var recognitionGen = 0
+    private var recognitionJob: Job? = null
+    private var recoveryRunnable: Runnable? = null
+    private var consecutiveRecErrors = 0
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -88,12 +99,12 @@ class AssistantService : Service() {
         scope.launch { loadModel() }
         // verificar atualizações 1 minuto depois de arrancar e depois de 6 em 6 horas
         scope.launch {
-            kotlinx.coroutines.delay(60_000L)
+            delay(60_000L)
             while (true) {
                 if (mode == Mode.WAKE || mode == Mode.LOADING) {
                     withContext(Dispatchers.IO) { try { Updater.checkAndInstall(this@AssistantService) } catch (_: Exception) { } }
                 }
-                kotlinx.coroutines.delay(6 * 60 * 60 * 1000L)
+                delay(6 * 60 * 60 * 1000L)
             }
         }
     }
@@ -101,11 +112,16 @@ class AssistantService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
 
     override fun onDestroy() {
+        destroyed = true
         instance = null
-        stopRecognition()
+        cancelRecovery()
+        recognitionJob?.cancel()
+        stopRecognitionSync()
         model?.close()
         tts?.shutdown()
-        Radio.stop()
+        try { player?.release() } catch (_: Exception) { }
+        player = null
+        Radio.release()
         wakeLock?.let { if (it.isHeld) it.release() }
         scope.cancel()
         super.onDestroy()
@@ -158,7 +174,12 @@ class AssistantService : Service() {
             override fun onDone(utteranceId: String?) {
                 main.post {
                     if (!afterSpeakPending) return@post
-                    if (utteranceId?.startsWith("file-") == true) playBunny(utteranceId) else speechFinished()
+                    if (utteranceId?.startsWith("file-") == true) {
+                        val token = utteranceId.removePrefix("file-").toIntOrNull() ?: speakToken
+                        if (token == speakToken) playBunny(token)
+                    } else {
+                        speechFinished()
+                    }
                 }
             }
             @Deprecated("Deprecated in Java")
@@ -176,36 +197,40 @@ class AssistantService : Service() {
 
     private fun say(text: String, then: (() -> Unit)?) {
         afterSpeak = then
-        // 1.º: voz gravada (tugão), se a frase toda existir nas gravações
-        val clip = if (text.isBlank()) null else try { ClipVoice.build(this, text) } catch (_: Exception) { null }
-        if (clip != null) {
-            Bus.mode.value = "speaking"
-            val token = ++speakToken
-            afterSpeakPending = true
-            pendingText = text
-            main.postDelayed({ if (token == speakToken && afterSpeakPending) speechFinished() }, 8000L + text.length * 120L)
-            playFile(clip)
-            return
-        }
-        if (text.isBlank() || !ttsReady) {
-            if (text.isNotBlank() && ttsProblem != null) Bus.status.value = "Sem voz: $ttsProblem"
+        if (text.isBlank()) {
             speechFinished()
             return
         }
-        Bus.mode.value = "speaking"
         val token = ++speakToken
         afterSpeakPending = true
         pendingText = text
+        Bus.mode.value = "speaking"
         // rede de segurança: se a voz nunca avisar que acabou, não ficar preso a "falar"
         main.postDelayed({ if (token == speakToken && afterSpeakPending) speechFinished() }, 8000L + text.length * 120L)
 
-        if (Prefs.bunnyVoice(this)) {
-            // gerar a fala num ficheiro e tocá-la mais aguda: voz de coelhinho
-            val f = java.io.File(cacheDir, "fala.wav")
-            val r = tts?.synthesizeToFile(text, null, f, "file-$token")
-            if (r == TextToSpeech.SUCCESS) return
+        scope.launch {
+            // 1.º: voz gravada (tugão), construída fora da thread principal
+            val clip = withContext(Dispatchers.IO) {
+                try { ClipVoice.build(this@AssistantService, text) } catch (_: Exception) { null }
+            }
+            if (token != speakToken || !afterSpeakPending) return@launch
+            if (clip != null) {
+                playFile(clip, token)
+                return@launch
+            }
+            if (!ttsReady) {
+                if (ttsProblem != null) Bus.status.value = "Sem voz: $ttsProblem"
+                speechFinished()
+                return@launch
+            }
+            if (Prefs.bunnyVoice(this@AssistantService)) {
+                // gerar a fala num ficheiro e tocá-la mais aguda: voz de coelhinho
+                val f = File(cacheDir, "fala.wav")
+                val r = tts?.synthesizeToFile(text, null, f, "file-$token")
+                if (r == TextToSpeech.SUCCESS) return@launch
+            }
+            speakPlain(text)
         }
-        speakPlain(text)
     }
 
     private var pendingText = ""
@@ -219,9 +244,9 @@ class AssistantService : Service() {
         }
     }
 
-    private fun playBunny(utteranceId: String) = playFile(java.io.File(cacheDir, "fala.wav"))
+    private fun playBunny(token: Int) = playFile(File(cacheDir, "fala.wav"), token)
 
-    private fun playFile(f: java.io.File) {
+    private fun playFile(f: File, token: Int) {
         try {
             player?.release()
             val mp = android.media.MediaPlayer()
@@ -232,17 +257,39 @@ class AssistantService : Service() {
                     .build()
             )
             mp.setDataSource(f.absolutePath)
-            mp.prepare()
-            val pitch = if (Prefs.bunnyVoice(this)) Prefs.bunnyPitch(this) else 1f
-            mp.playbackParams = mp.playbackParams.setPitch(pitch).setSpeed(if (pitch > 1.05f) 1.08f else 1f)
-            mp.setOnCompletionListener {
-                it.release()
-                if (player === it) player = null
-                if (afterSpeakPending) speechFinished()
+            mp.setOnPreparedListener { ready ->
+                if (destroyed || token != speakToken || !afterSpeakPending || player !== ready) {
+                    try { ready.release() } catch (_: Exception) { }
+                    return@setOnPreparedListener
+                }
+                try {
+                    val pitch = if (Prefs.bunnyVoice(this)) Prefs.bunnyPitch(this) else 1f
+                    ready.playbackParams = ready.playbackParams
+                        .setPitch(pitch)
+                        .setSpeed(if (pitch > 1.05f) 1.08f else 1f)
+                    ready.start()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Erro ao reproduzir áudio da fala", e)
+                    try { ready.release() } catch (_: Exception) { }
+                    if (player === ready) player = null
+                    speakPlain(pendingText)
+                }
+            }
+            mp.setOnCompletionListener { done ->
+                try { done.release() } catch (_: Exception) { }
+                if (player === done) player = null
+                if (token == speakToken && afterSpeakPending) speechFinished()
+            }
+            mp.setOnErrorListener { failed, _, _ ->
+                try { failed.release() } catch (_: Exception) { }
+                if (player === failed) player = null
+                if (token == speakToken && afterSpeakPending) speakPlain(pendingText)
+                true
             }
             player = mp
-            mp.start()
+            mp.prepareAsync()
         } catch (e: Exception) {
+            Log.w(TAG, "Erro ao preparar MediaPlayer", e)
             speakPlain(pendingText)
         }
     }
@@ -258,9 +305,9 @@ class AssistantService : Service() {
         afterSpeak = null
         releaseFocus()
         Bus.mode.value = "idle"
-        try { a?.invoke() } catch (_: Exception) { }
+        try { a?.invoke() } catch (e: Exception) { Log.w(TAG, "Erro em afterSpeech", e) }
         // dar um momento para o som acabar antes de voltar a ouvir
-        main.postDelayed({ listenForWakeWord() }, 600)
+        main.postDelayed({ if (!destroyed) listenForWakeWord() }, 600)
         // limpar o balão passado algum tempo, para voltar a mostrar o estado
         val shown = Bus.answer.value
         main.postDelayed({
@@ -284,7 +331,8 @@ class AssistantService : Service() {
             model = withContext(Dispatchers.IO) { Model(dir.absolutePath) }
             listenForWakeWord()
         } catch (e: Exception) {
-            Bus.status.value = "Erro no modelo de voz: ${e.message}. Reinicia a app para tentar outra vez."
+            Log.e(TAG, "Erro no modelo de voz", e)
+            Bus.status.value = "Erro no modelo de voz. Reinicia a app para tentar outra vez."
             dir.deleteRecursively()
         }
     }
@@ -293,8 +341,11 @@ class AssistantService : Service() {
         val tmp = File(filesDir, "model.tmp")
         tmp.deleteRecursively()
         tmp.mkdirs()
+        val downloadClient = Http.client.newBuilder()
+            .callTimeout(5, TimeUnit.MINUTES)
+            .build()
         val req = Request.Builder().url(MODEL_URL).header("User-Agent", Http.UA).build()
-        Http.client.newCall(req).execute().use { r ->
+        downloadClient.newCall(req).execute().use { r ->
             if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")
             val total = r.body!!.contentLength()
             var read = 0L
@@ -332,79 +383,184 @@ class AssistantService : Service() {
 
     /**
      * O modelo português não conhece "tricky", por isso usamos palavras portuguesas
-     * que soam parecido ("trico", "trica"…). Para outras palavras usa-se a própria.
+     * que soam parecido ("trico", "trica"…) evitando palavras demasiado comuns.
      */
     private fun wakeVariants(): List<String> {
         val w = Txt.norm(Prefs.wakeWord(this)).removePrefix("hey ").removePrefix("ei ").trim()
         return if (w.contains("trick") || w.contains("triki") || w.contains("trique")) {
-            listOf("trico", "trica", "trigo", "tric", "tique", "tico", "tica", "rico", "rica", "trinca", "truque", "trique")
+            listOf("trico", "trica", "trique", "truque", "trinca", "tique")
         } else {
-            w.split(" ").filter { it.isNotBlank() }.ifEmpty { listOf("manel") }
+            w.split(" ").filter { it.isNotBlank() }.ifEmpty { listOf("tricky") }
         }
     }
 
-    private fun wakeGrammar(): String {
-        val v = wakeVariants()
-        val phrases = v + v.map { "ei $it" } + v.map { "ai $it" } + "[unk]"
+    private fun wakeGrammar(variants: List<String>): String {
+        val phrases = variants + variants.map { "ei $it" } + variants.map { "ai $it" } + "[unk]"
         return JSONArray(phrases).toString()
     }
 
-    private fun stopRecognition() {
-        speech?.let {
-            try { it.stop() } catch (_: Exception) { }
-            try { it.shutdown() } catch (_: Exception) { }
-        }
-        speech = null
-        recognizer?.close()
-        recognizer = null
+    private fun cancelRecovery() {
+        recoveryRunnable?.let { main.removeCallbacks(it) }
+        recoveryRunnable = null
     }
 
-    private fun startRecognition(rec: Recognizer, listener: RecognitionListener, timeoutMs: Int?) {
-        stopRecognition()
-        recognizer = rec
-        try {
-            val s = SpeechService(rec, SAMPLE_RATE)
-            speech = s
-            if (timeoutMs != null) s.startListening(listener, timeoutMs) else s.startListening(listener)
-        } catch (e: Exception) {
-            Bus.status.value = "Não consigo usar o microfone: ${e.message}"
+    private fun scheduleRecovery(gen: Int, exception: Exception?) {
+        Log.w(TAG, "Erro no reconhecimento de voz", exception)
+        main.post {
+            if (destroyed || gen != recognitionGen) return@post
+            if (mode == Mode.COMMAND) releaseFocus()
+            if (mode == Mode.BUSY) return@post
+            consecutiveRecErrors++
+            val backoff = minOf(5000L, 1200L * consecutiveRecErrors)
+            Bus.status.value = "A reiniciar microfone…"
+            cancelRecovery()
+            val task = Runnable {
+                if (!destroyed && mode != Mode.BUSY) listenForWakeWord()
+            }
+            recoveryRunnable = task
+            scope.launch(Dispatchers.IO) { stopRecognitionSync() }
+            main.postDelayed(task, backoff)
+        }
+    }
+
+    private fun stopRecognitionSync() {
+        synchronized(recLock) {
+            speech?.let {
+                try { it.stop() } catch (_: Exception) { }
+                try { it.shutdown() } catch (_: Exception) { }
+            }
+            speech = null
+            try { recognizer?.close() } catch (_: Exception) { }
+            recognizer = null
+        }
+    }
+
+    private fun startRecognitionSync(rec: Recognizer, listener: RecognitionListener, timeoutMs: Int?): Boolean {
+        synchronized(recLock) {
+            stopRecognitionSync()
+            recognizer = rec
+            return try {
+                val s = SpeechService(rec, SAMPLE_RATE)
+                speech = s
+                if (timeoutMs != null) s.startListening(listener, timeoutMs) else s.startListening(listener)
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Não consigo usar o microfone", e)
+                try { rec.close() } catch (_: Exception) { }
+                recognizer = null
+                false
+            }
         }
     }
 
     /** Fica à espera da palavra de ativação (gramática pequena = leve para o relógio). */
     fun listenForWakeWord() {
         val m = model ?: return
+        if (destroyed) return
+        cancelRecovery()
+        recognitionJob?.cancel()
+        val gen = ++recognitionGen
         mode = Mode.WAKE
         Bus.status.value = "À escuta — diz \"${Prefs.wakeWord(this)}\""
         Bus.mode.value = "idle"
-        val rec = Recognizer(m, SAMPLE_RATE, wakeGrammar())
-        rec.setWords(true)
-        startRecognition(rec, object : SimpleListener() {
-            override fun onPartialResult(hypothesis: String?) {
-                val p = hypothesis?.let { JSONObject(it).optString("partial") } ?: ""
-                if (mode == Mode.WAKE && p.isNotBlank() && wakeVariants().any { v -> p.split(" ").contains(v) }) {
-                    main.post { listenForCommand() }
-                }
-            }
 
-            override fun onResult(hypothesis: String?) {
-                if (mode != Mode.WAKE) return
-                val text = hypothesis?.let { JSONObject(it).optString("text") } ?: ""
-                // mostrar o que percebeu ajuda a afinar a palavra de ativação
-                if (text.isNotBlank() && text != "[unk]") main.post { Bus.status.value = "Ouvi \"$text\" — diz \"${Prefs.wakeWord(this@AssistantService)}\"" }
-                if (isWake(hypothesis)) main.post { listenForCommand() }
+        val variants = wakeVariants()
+        val grammar = wakeGrammar(variants)
+
+        recognitionJob = scope.launch {
+            val started = withContext(Dispatchers.IO) {
+                val rec = try {
+                    Recognizer(m, SAMPLE_RATE, grammar).apply { setWords(true) }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Erro ao criar Recognizer de wake word", e)
+                    return@withContext false
+                }
+                if (destroyed || gen != recognitionGen || mode != Mode.WAKE) {
+                    try { rec.close() } catch (_: Exception) { }
+                    return@withContext true
+                }
+                var lastPartialCandidate: String? = null
+                val listener = object : SimpleListener() {
+                    override fun onPartialResult(hypothesis: String?) {
+                        if (gen != recognitionGen || mode != Mode.WAKE) return
+                        val p = hypothesis?.let { JSONObject(it).optString("partial") }?.trim() ?: ""
+                        if (p.isBlank()) {
+                            lastPartialCandidate = null
+                            return
+                        }
+                        val words = p.split(' ').filter { it.isNotBlank() }
+                        for (i in words.indices) {
+                            val w = words[i]
+                            if (w !in variants) continue
+                            val hasPrefix = i > 0 && (words[i - 1] == "ei" || words[i - 1] == "ai")
+                            if (hasPrefix) {
+                                main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
+                                return
+                            }
+                            // Sem prefixo ("ei"/"ai"): não disparar imediatamente em palavras curtas;
+                            // exigir >= 6 letras confirmadas em dois parciais consecutivos.
+                            if (w.length >= 6) {
+                                if (lastPartialCandidate == w) {
+                                    main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
+                                } else {
+                                    lastPartialCandidate = w
+                                }
+                                return
+                            }
+                        }
+                        lastPartialCandidate = null
+                    }
+
+                    override fun onResult(hypothesis: String?) {
+                        if (gen != recognitionGen || mode != Mode.WAKE) return
+                        lastPartialCandidate = null
+                        val text = hypothesis?.let { JSONObject(it).optString("text") } ?: ""
+                        // mostrar o que percebeu ajuda a afinar a palavra de ativação
+                        if (text.isNotBlank() && text != "[unk]") {
+                            main.post {
+                                if (mode == Mode.WAKE) {
+                                    Bus.status.value = "Ouvi \"$text\" — diz \"${Prefs.wakeWord(this@AssistantService)}\""
+                                }
+                            }
+                        }
+                        if (isWake(hypothesis, variants)) {
+                            main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
+                        }
+                    }
+
+                    override fun onError(exception: Exception?) {
+                        scheduleRecovery(gen, exception)
+                    }
+                }
+                startRecognitionSync(rec, listener, null)
             }
-        }, null)
+            if (started) {
+                consecutiveRecErrors = 0
+            } else if (gen == recognitionGen && !destroyed) {
+                scheduleRecovery(gen, IllegalStateException("Falha ao iniciar microfone"))
+            }
+        }
     }
 
-    private fun isWake(json: String?): Boolean {
+    private fun isWake(json: String?, variants: List<String>): Boolean {
         if (json.isNullOrBlank()) return false
         val o = JSONObject(json)
         val words = o.optJSONArray("result") ?: return false
-        val variants = wakeVariants()
+        var prevWord = ""
         for (i in 0 until words.length()) {
             val w = words.getJSONObject(i)
-            if (w.optString("word") in variants && w.optDouble("conf", 1.0) >= 0.45) return true
+            val word = w.optString("word")
+            val conf = w.optDouble("conf", 1.0)
+            if (word in variants) {
+                val hasPrefix = prevWord == "ei" || prevWord == "ai"
+                val minConf = when {
+                    hasPrefix -> 0.45
+                    word.length < 6 -> 0.60
+                    else -> 0.55
+                }
+                if (conf >= minConf) return true
+            }
+            prevWord = word
         }
         return false
     }
@@ -412,9 +568,11 @@ class AssistantService : Service() {
     /** Chamado pela palavra de ativação ou pelo botão do ecrã. */
     fun listenForCommand() {
         val m = model ?: return
-        if (mode == Mode.COMMAND || mode == Mode.BUSY) return
+        if (destroyed || mode == Mode.COMMAND || mode == Mode.BUSY) return
+        cancelRecovery()
+        recognitionJob?.cancel()
+        val gen = ++recognitionGen
         mode = Mode.COMMAND
-        stopRecognition()
         requestFocus()
         Bus.heard.value = ""
         Bus.status.value = "Diz…"
@@ -424,48 +582,100 @@ class AssistantService : Service() {
             tone.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
             main.postDelayed({ tone.release() }, 400)
         } catch (_: Exception) { }
-        main.postDelayed({
-            val rec = Recognizer(m, SAMPLE_RATE)
-            startRecognition(rec, object : SimpleListener() {
-                override fun onPartialResult(hypothesis: String?) {
-                    val p = hypothesis?.let { JSONObject(it).optString("partial") } ?: ""
-                    if (p.isNotBlank()) Bus.heard.value = p
-                }
 
-                override fun onResult(hypothesis: String?) {
-                    val text = hypothesis?.let { JSONObject(it).optString("text") } ?: ""
-                    if (mode == Mode.COMMAND && text.isNotBlank()) main.post { handleCommand(text) }
-                }
+        recognitionJob = scope.launch {
+            withContext(Dispatchers.IO) { stopRecognitionSync() }
+            delay(250)
+            if (destroyed || gen != recognitionGen || mode != Mode.COMMAND) return@launch
 
-                override fun onTimeout() {
-                    main.post {
-                        if (mode == Mode.COMMAND) {
-                            releaseFocus()
-                            Bus.status.value = "Não ouvi nada."
-                            listenForWakeWord()
+            val started = withContext(Dispatchers.IO) {
+                val rec = try {
+                    Recognizer(m, SAMPLE_RATE)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Erro ao criar Recognizer de comando", e)
+                    return@withContext false
+                }
+                if (destroyed || gen != recognitionGen || mode != Mode.COMMAND) {
+                    try { rec.close() } catch (_: Exception) { }
+                    return@withContext true
+                }
+                val lastPartial = java.util.concurrent.atomic.AtomicReference("")
+                val listener = object : SimpleListener() {
+                    override fun onPartialResult(hypothesis: String?) {
+                        if (gen != recognitionGen || mode != Mode.COMMAND) return
+                        val p = hypothesis?.let { JSONObject(it).optString("partial") }?.trim() ?: ""
+                        if (p.isNotBlank()) {
+                            lastPartial.set(p)
+                            Bus.heard.value = p
                         }
                     }
+
+                    override fun onResult(hypothesis: String?) {
+                        if (gen != recognitionGen || mode != Mode.COMMAND) return
+                        val text = hypothesis?.let { JSONObject(it).optString("text") }?.trim() ?: ""
+                        if (text.isNotBlank()) {
+                            main.post { if (gen == recognitionGen && mode == Mode.COMMAND) handleCommand(text) }
+                        }
+                    }
+
+                    override fun onFinalResult(hypothesis: String?) {
+                        if (gen != recognitionGen || mode != Mode.COMMAND) return
+                        val text = hypothesis?.let { JSONObject(it).optString("text") }?.trim() ?: ""
+                        val chosen = text.ifBlank { lastPartial.get().trim() }
+                        if (chosen.isNotBlank()) {
+                            main.post { if (gen == recognitionGen && mode == Mode.COMMAND) handleCommand(chosen) }
+                        }
+                    }
+
+                    override fun onTimeout() {
+                        main.post {
+                            if (gen != recognitionGen || mode != Mode.COMMAND) return@post
+                            val fallback = lastPartial.get().trim()
+                            if (fallback.isNotBlank()) {
+                                handleCommand(fallback)
+                            } else {
+                                releaseFocus()
+                                Bus.status.value = "Não ouvi nada."
+                                listenForWakeWord()
+                            }
+                        }
+                    }
+
+                    override fun onError(exception: Exception?) {
+                        scheduleRecovery(gen, exception)
+                    }
                 }
-            }, 8000)
-        }, 250)
+                startRecognitionSync(rec, listener, 8000)
+            }
+            if (started) {
+                consecutiveRecErrors = 0
+            } else if (gen == recognitionGen && !destroyed) {
+                scheduleRecovery(gen, IllegalStateException("Falha ao iniciar escuta de comando"))
+            }
+        }
     }
 
     /** Pedido vindo de um botão do ecrã (sem voz). */
     fun runText(text: String) {
-        if (mode == Mode.BUSY || model == null && text.isBlank()) return
-        stopRecognition()
+        if (mode == Mode.BUSY || (model == null && text.isBlank())) return
         handleCommand(text)
     }
 
     private fun handleCommand(text: String) {
+        cancelRecovery()
+        recognitionJob?.cancel()
+        recognitionGen++
         mode = Mode.BUSY
-        stopRecognition()
         Bus.heard.value = text
         Bus.status.value = "A pensar…"
         Bus.mode.value = "thinking"
         scope.launch {
-            val answer = withContext(Dispatchers.IO) { brain.answer(this@AssistantService, text) }
-            if (answer.speech.isNotBlank()) Bus.answer.value = answer.speech
+            val answer = withContext(Dispatchers.IO) {
+                stopRecognitionSync()
+                brain.answer(this@AssistantService, text)
+            }
+            val shown = (answer.display ?: answer.speech).trim()
+            if (shown.isNotBlank()) Bus.answer.value = shown
             Bus.status.value = "A responder…"
             say(answer.speech, answer.afterSpeech)
         }

@@ -13,7 +13,7 @@ object Prefs {
 
     fun wakeWord(c: Context) = p(c).getString("wake", "hey tricky")!!.ifBlank { "hey tricky" }
     fun city(c: Context) = p(c).getString("city", "Lisboa")!!.ifBlank { "Lisboa" }
-    fun haUrl(c: Context) = p(c).getString("ha_url", "http://192.168.1.109")!!.trimEnd('/')
+    fun haUrl(c: Context) = p(c).getString("ha_url", "")!!.trim().trimEnd('/')
     fun haToken(c: Context) = p(c).getString("ha_token", "")!!.trim()
     /** nomes dos aparelhos que aparecem como botões no ecrã inicial */
     fun homeButtons(c: Context) = p(c).getString("home_buttons", "")!!
@@ -43,6 +43,7 @@ object Http {
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
     /** GET simples (chamar fora da thread principal). */
@@ -57,11 +58,15 @@ object Http {
 }
 
 object Txt {
+    private val COMBINING_MARKS = Regex("\\p{Mn}+")
+    private val NON_ALNUM = Regex("[^a-z0-9 ]")
+    private val MULTI_SPACE = Regex("\\s+")
+
     /** minúsculas, sem acentos, sem pontuação, espaços simples */
     fun norm(s: String): String {
         val noAccents = Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD)
-            .replace(Regex("\\p{Mn}+"), "")
-        return noAccents.replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()
+            .replace(COMBINING_MARKS, "")
+        return noAccents.replace(NON_ALNUM, " ").replace(MULTI_SPACE, " ").trim()
     }
 
     fun tokens(s: String): List<String> = norm(s).split(" ").filter { it.isNotBlank() }

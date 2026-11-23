@@ -15,16 +15,22 @@ import java.nio.ByteOrder
 object ClipVoice {
     private const val DIR = "voz"
     private const val RATE = 16000
-    private var clips: Map<String, String>? = null
-    private var maxWords = 1
+    private const val FADE_SAMPLES = 64 // ~4 ms a 16 kHz
+    private val SEGMENT_SPLIT = Regex("[.,!?:;]+")
+
+    @Volatile private var clips: Map<String, String>? = null
+    @Volatile private var maxWords = 1
 
     private fun load(ctx: Context): Map<String, String> {
         clips?.let { return it }
-        val names = ctx.assets.list(DIR)?.filter { it.endsWith(".wav") } ?: emptyList()
-        val m = names.associate { it.removeSuffix(".wav").replace('_', ' ') to "$DIR/$it" }
-        maxWords = m.keys.maxOfOrNull { it.split(' ').size } ?: 1
-        clips = m
-        return m
+        synchronized(this) {
+            clips?.let { return it }
+            val names = ctx.assets.list(DIR)?.filter { it.endsWith(".wav") } ?: emptyList()
+            val m = names.associate { it.removeSuffix(".wav").replace('_', ' ') to "$DIR/$it" }
+            maxWords = m.keys.maxOfOrNull { it.split(' ').size } ?: 1
+            clips = m
+            return m
+        }
     }
 
     fun available(ctx: Context) = load(ctx).isNotEmpty()
@@ -36,10 +42,10 @@ object ClipVoice {
         // frase completa gravada de uma vez (soa mais natural)
         map[Txt.tokens(text).joinToString(" ")]?.let { whole ->
             val out = File(ctx.cacheDir, "fala-gravada.wav")
-            writeWav(out, readPcm(ctx, whole))
+            writeWav(out, applyFade(readPcm(ctx, whole)))
             return out
         }
-        val segments = text.split(Regex("[.,!?:;]+")).map { Txt.tokens(it) }.filter { it.isNotEmpty() }
+        val segments = text.split(SEGMENT_SPLIT).map { Txt.tokens(it) }.filter { it.isNotEmpty() }
         if (segments.isEmpty()) return null
 
         val parts = mutableListOf<Pair<String?, Int>>() // (asset, silêncio em ms depois)
@@ -62,12 +68,36 @@ object ClipVoice {
 
         val pcm = ByteArrayOutputStream()
         for ((asset, gap) in parts) {
-            if (asset != null) pcm.write(readPcm(ctx, asset))
+            if (asset != null) pcm.write(applyFade(readPcm(ctx, asset)))
             if (gap > 0) pcm.write(ByteArray(RATE * 2 * gap / 1000))
         }
         val out = File(ctx.cacheDir, "fala-gravada.wav")
         writeWav(out, pcm.toByteArray())
         return out
+    }
+
+    /** Aplica fade-in e fade-out suave (~4 ms) nas pontas de um clip PCM 16-bit LE mono. */
+    private fun applyFade(pcm: ByteArray): ByteArray {
+        val totalSamples = pcm.size / 2
+        val fade = minOf(FADE_SAMPLES, totalSamples / 2)
+        if (fade <= 0) return pcm
+        for (i in 0 until fade) {
+            val gain = i.toFloat() / fade
+            // início (fade-in)
+            val sIdx = i * 2
+            val s0 = (pcm[sIdx].toInt() and 0xFF) or (pcm[sIdx + 1].toInt() shl 8)
+            val v0 = (s0.toShort() * gain).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            pcm[sIdx] = (v0 and 0xFF).toByte()
+            pcm[sIdx + 1] = ((v0 ushr 8) and 0xFF).toByte()
+
+            // fim (fade-out)
+            val eIdx = (totalSamples - 1 - i) * 2
+            val s1 = (pcm[eIdx].toInt() and 0xFF) or (pcm[eIdx + 1].toInt() shl 8)
+            val v1 = (s1.toShort() * gain).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            pcm[eIdx] = (v1 and 0xFF).toByte()
+            pcm[eIdx + 1] = ((v1 ushr 8) and 0xFF).toByte()
+        }
+        return pcm
     }
 
     /** Lê só os dados de áudio de um WAV (procura o bloco "data"). */
@@ -96,6 +126,8 @@ object ClipVoice {
 
 /** Números por extenso em português de Portugal (0–100; acima disso, em algarismos). */
 object Words {
+    private val END_UM = Regex("\\bum$")
+    private val END_DOIS = Regex("\\bdois$")
     private val units = listOf(
         "zero", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove",
         "dez", "onze", "doze", "treze", "catorze", "quinze", "dezasseis", "dezassete", "dezoito", "dezanove"
@@ -111,6 +143,6 @@ object Words {
             else -> n.toString()
         }
         if (!feminine) return s
-        return s.replace(Regex("\\bum$"), "uma").replace(Regex("\\bdois$"), "duas")
+        return s.replace(END_UM, "uma").replace(END_DOIS, "duas")
     }
 }

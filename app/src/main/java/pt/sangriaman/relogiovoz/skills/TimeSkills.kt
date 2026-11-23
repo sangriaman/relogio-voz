@@ -3,6 +3,7 @@ package pt.sangriaman.relogiovoz.skills
 import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
+import android.util.Log
 import pt.sangriaman.relogiovoz.PtNumbers
 import pt.sangriaman.relogiovoz.Words
 import java.time.LocalDate
@@ -14,9 +15,12 @@ private val PT = Locale("pt", "PT")
 
 /** "Que horas são?" / "Que dia é hoje?" */
 class ClockSkill : Skill {
-    override fun matches(n: String, t: List<String>) =
-        n.contains("que horas") || n == "horas" || n.contains("horas sao") ||
-            n.contains("que dia") || n.contains("dia de hoje") || n.contains("data de hoje")
+    override fun score(n: String, t: List<String>): Int {
+        val match = n.contains("que horas") || n == "horas" || n.contains("horas sao") ||
+            n.contains("que dia") || n.contains("dia de hoje") || n.contains("data de hoje") ||
+            n.contains("qual e a data")
+        return if (match) 90 else 0
+    }
 
     override suspend fun handle(ctx: Context, n: String, t: List<String>, raw: String): Answer {
         if (n.contains("dia") || n.contains("data")) {
@@ -53,8 +57,11 @@ class ClockSkill : Skill {
 
 /** "Temporizador de 10 minutos" — usa a app Relógio do sistema. */
 class TimerSkill : Skill {
-    override fun matches(n: String, t: List<String>) =
-        n.contains("temporizador") || n.contains("cronometro") || n.contains("contagem")
+    override fun score(n: String, t: List<String>): Int {
+        val match = n.contains("temporizador") || n.contains("cronometro") ||
+            n.contains("contagem") || t.hasAny("timer")
+        return if (match) 90 else 0
+    }
 
     override suspend fun handle(ctx: Context, n: String, t: List<String>, raw: String): Answer {
         var seconds = 0
@@ -74,9 +81,13 @@ class TimerSkill : Skill {
                 }
                 if (mult > 0) {
                     seconds += num.first * mult
-                    // "um minuto e meio"
-                    if (num.second + 2 < t.size && t[num.second + 1] == "e" && t[num.second + 2] == "meio") {
+                    // "um minuto e meio" / "uma hora e meia"
+                    if (num.second + 2 < t.size && t[num.second + 1] == "e" &&
+                        (t[num.second + 2] == "meio" || t[num.second + 2] == "meia")
+                    ) {
                         seconds += mult / 2
+                        i = num.second + 3
+                        continue
                     }
                     i = num.second + 1
                     continue
@@ -91,11 +102,13 @@ class TimerSkill : Skill {
             .putExtra(AlarmClock.EXTRA_MESSAGE, "Tricky")
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        return try {
-            ctx.startActivity(intent)
-            Answer("Temporizador de ${describe(seconds)} a contar.")
-        } catch (e: Exception) {
-            Answer("Não consegui criar o temporizador.")
+        val appCtx = ctx.applicationContext
+        return Answer("Temporizador de ${describe(seconds)} a contar.") {
+            try {
+                appCtx.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("TimerSkill", "Erro ao iniciar temporizador", e)
+            }
         }
     }
 
@@ -113,31 +126,38 @@ class TimerSkill : Skill {
 
 /** "Acorda-me às sete e meia" / "Alarme para as oito" */
 class AlarmSkill : Skill {
-    override fun matches(n: String, t: List<String>) =
-        n.contains("alarme") || n.contains("despertador") || n.contains("acorda") || n.contains("acordar")
+    override fun score(n: String, t: List<String>): Int {
+        val match = n.contains("alarme") || n.contains("despertador") ||
+            n.contains("acorda") || n.contains("acordar")
+        return if (match) 90 else 0
+    }
 
     override suspend fun handle(ctx: Context, n: String, t: List<String>, raw: String): Answer {
-        // a hora vem normalmente depois de "as"
-        val start = t.indexOfFirst { it == "as" || it == "a" }.let { if (it < 0) 0 else it + 1 }
-        val hourNum = PtNumbers.first(t, start)
-            ?: return Answer("A que horas? Diz, por exemplo, acorda-me às sete e meia.")
-        var hour = hourNum.first
+        var hour: Int
         var minute = 0
-        var j = hourNum.third
-        if (j < t.size && t[j].startsWith("hora")) j++
-        if (j < t.size && t[j] == "e" && j + 1 < t.size) {
-            when {
-                t[j + 1] == "meia" -> minute = 30
-                t[j + 1] == "um" && j + 2 < t.size && t[j + 2] == "quarto" -> minute = 15
-                t[j + 1] == "quinze" -> minute = 15
-                else -> PtNumbers.parseAt(t, j + 1)?.let { minute = it.first }
-            }
-        } else if (j < t.size) {
-            // "sete trinta"
-            PtNumbers.parseAt(t, j)?.let { if (it.first < 60) minute = it.first }
+
+        if (n.contains("meio dia")) {
+            hour = 12
+            val idx = t.indexOf("dia")
+            if (idx >= 0) minute = parseMinutes(t, idx + 1)
+        } else if (n.contains("meia noite")) {
+            hour = 0
+            val idx = t.indexOf("noite")
+            if (idx >= 0) minute = parseMinutes(t, idx + 1)
+        } else {
+            // a hora vem normalmente depois de "as"
+            val start = t.indexOfFirst { it == "as" || it == "a" }.let { if (it < 0) 0 else it + 1 }
+            val hourNum = PtNumbers.first(t, start)
+                ?: return Answer("A que horas? Diz, por exemplo, acorda-me às sete e meia.")
+            hour = hourNum.first
+            var j = hourNum.third
+            if (j < t.size && t[j].startsWith("hora")) j++
+            minute = parseMinutes(t, j)
+            if ((n.contains("da tarde") || n.contains("da noite")) && hour < 12) hour += 12
+            if (n.contains("da manha") && hour == 12) hour = 0
         }
-        if ((n.contains("da tarde") || n.contains("da noite")) && hour < 12) hour += 12
-        if (hour > 23 || minute > 59) return Answer("Essa hora não é válida.")
+
+        if (hour !in 0..23 || minute !in 0..59) return Answer("Essa hora não é válida.")
 
         val intent = Intent(AlarmClock.ACTION_SET_ALARM)
             .putExtra(AlarmClock.EXTRA_HOUR, hour)
@@ -145,11 +165,50 @@ class AlarmSkill : Skill {
             .putExtra(AlarmClock.EXTRA_MESSAGE, "Tricky")
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        return try {
-            ctx.startActivity(intent)
-            Answer("Alarme marcado para ${if (hour == 1 || hour == 13) "a" else "as"} ${Words.of(if (hour > 12) hour - 12 else if (hour == 0) 12 else hour, true)}${if (minute > 0) " e ${Words.of(minute)}" else ""}.")
-        } catch (e: Exception) {
-            Answer("Não consegui marcar o alarme.")
+        val appCtx = ctx.applicationContext
+        return Answer("Alarme marcado para ${formatAlarmTime(hour, minute)}.") {
+            try {
+                appCtx.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("AlarmSkill", "Erro ao marcar alarme", e)
+            }
         }
+    }
+
+    private fun parseMinutes(t: List<String>, start: Int): Int {
+        if (start >= t.size) return 0
+        if (t[start] == "e" && start + 1 < t.size) {
+            return when {
+                t[start + 1] == "meia" -> 30
+                t[start + 1] == "um" && start + 2 < t.size && t[start + 2] == "quarto" -> 15
+                t[start + 1] == "quinze" -> 15
+                else -> PtNumbers.parseAt(t, start + 1)?.first ?: 0
+            }
+        }
+        // "sete trinta"
+        return PtNumbers.parseAt(t, start)?.takeIf { it.first < 60 }?.first ?: 0
+    }
+
+    private fun formatAlarmTime(h: Int, m: Int): String {
+        val hours = when (h) {
+            0 -> "a meia-noite"
+            1 -> "a uma hora"
+            12 -> "o meio-dia"
+            13 -> "a uma hora"
+            else -> "as ${Words.of(if (h > 12) h - 12 else h, true)} horas"
+        }
+        val mins = when (m) {
+            0 -> ""
+            1 -> " e um minuto"
+            30 -> " e meia"
+            else -> " e ${Words.of(m)}"
+        }
+        val period = when (h) {
+            in 1..11 -> " da manhã"
+            in 13..19 -> " da tarde"
+            in 20..23 -> " da noite"
+            else -> ""
+        }
+        return "$hours$mins$period"
     }
 }
