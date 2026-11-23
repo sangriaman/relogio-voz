@@ -195,14 +195,16 @@ class MainActivity : Activity() {
         val clock = TextClock(this).apply {
             format24Hour = "HH:mm"
             format12Hour = "HH:mm"
-            textSize = 48f
+            textSize = 78f
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            includeFontPadding = false
+            setLineSpacing(0f, 0.9f)
         }
         val date = TextClock(this).apply {
             format24Hour = "EEEE, d 'de' MMMM"
             format12Hour = "EEEE, d 'de' MMMM"
-            textSize = 14f
+            textSize = 17f
             setTextColor(Color.WHITE)
         }
         weather = widget("A carregar o tempo…")
