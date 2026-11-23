@@ -25,6 +25,15 @@ Leva o guarda-chuva.
 Não está prevista chuva.
 Olá! Eu sou o Tricky.
 
+# --- rotina da Sofia
+Bom dia, Sofia! Está na hora de acordar.
+Boa noite, Sofia! Está na hora de dormir.
+Bom dia
+Boa noite
+Sofia
+Está na hora de acordar
+Está na hora de dormir
+
 # --- horas e datas
 Hoje
 Hoje é

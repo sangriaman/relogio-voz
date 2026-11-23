@@ -45,6 +45,8 @@ class MainActivity : Activity() {
     private lateinit var music: TextView
     private lateinit var homeRow: LinearLayout
     private lateinit var overlayButton: Button
+    private lateinit var night: View
+    private var peekUntil = 0L
 
     // fundo turquesa; cartões num turquesa mais escuro para o texto branco se ler bem
     private val turquoise = Color.rgb(48, 196, 190)
@@ -54,7 +56,16 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        setContentView(buildUi())
+        setContentView(android.widget.FrameLayout(this).apply {
+            addView(buildUi())
+            addView(buildNight())
+        })
+        scope.launch {
+            while (true) {
+                applyNight()
+                delay(20_000L)
+            }
+        }
 
         scope.launch { Bus.mode.collect { plush.mode = it } }
         scope.launch { Bus.status.collect { refreshBubble() } }
@@ -171,6 +182,54 @@ class MainActivity : Activity() {
                     refreshHome()
                 }
             })
+        }
+    }
+
+    // ------------------------------------------------------------------ modo noite
+
+    /** Ecrã escuro só com as horas; tocar mostra o ecrã normal durante 1 minuto. */
+    private fun buildNight(): View {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.BLACK)
+            visibility = View.GONE
+            isClickable = true
+            setOnClickListener {
+                peekUntil = System.currentTimeMillis() + 60_000L
+                applyNight()
+                scope.launch { delay(61_000L); applyNight() }
+            }
+        }
+        box.addView(TextClock(this).apply {
+            format24Hour = "HH:mm"
+            format12Hour = "HH:mm"
+            setTextColor(Color.rgb(0, 120, 125))
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+            includeFontPadding = false
+            gravity = Gravity.CENTER
+            maxLines = 1
+            setAutoSizeTextTypeUniformWithConfiguration(40, 220, 2, android.util.TypedValue.COMPLEX_UNIT_SP)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        box.addView(TextView(this).apply {
+            text = "Dorme bem 🌙"
+            textSize = 16f
+            setTextColor(Color.rgb(0, 90, 95))
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(10))
+        })
+        night = box
+        return box
+    }
+
+    private fun applyNight() {
+        val on = Routine.isNight(this) && System.currentTimeMillis() > peekUntil
+        night.visibility = if (on) View.VISIBLE else View.GONE
+        val lp = window.attributes
+        val want = if (on) 0.02f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        if (lp.screenBrightness != want) {
+            lp.screenBrightness = want
+            window.attributes = lp
         }
     }
 

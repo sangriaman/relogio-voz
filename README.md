@@ -5,7 +5,7 @@ O reconhecimento de voz é feito **no próprio relógio** (Vosk, modelo `vosk-mo
 
 ## O que faz
 
-Diz **"Hey Tricky"**, espera pelo bip e pede:
+Diz **"Olá Nénem"**, espera pelo bip e pede:
 
 | Pedido | Exemplo |
 |---|---|
@@ -18,6 +18,12 @@ Diz **"Hey Tricky"**, espera pelo bip e pede:
 | Música (YouTube) | "Toca Xutos e Pontapés" |
 | Rádios | "Põe a Rádio Comercial", "Toca a rádio Antena um" |
 | Controlo | "Pára", "Continua", "Próxima", "Anterior", "Mais alto", "Volume a 50 por cento" |
+
+## Rotina
+
+- Dias úteis às **07:30**: "Bom dia, Sofia! Está na hora de acordar." (sem despertador ao fim de semana e nos feriados, incluindo Carnaval e o feriado de Guimarães).
+- Todos os dias às **21:30**: "Boa noite, Sofia! Está na hora de dormir." e o ecrã passa a **modo noite** (escuro, só as horas) até de manhã. Tocar no ecrã mostra o ecrã normal durante 1 minuto.
+- Nome e horas mudam-se em ⚙.
 
 ## Instalar
 

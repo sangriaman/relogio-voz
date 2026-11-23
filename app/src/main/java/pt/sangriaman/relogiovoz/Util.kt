@@ -11,7 +11,15 @@ import java.util.concurrent.TimeUnit
 object Prefs {
     private fun p(c: Context) = c.getSharedPreferences("manel", Context.MODE_PRIVATE)
 
-    fun wakeWord(c: Context) = p(c).getString("wake", "hey tricky")!!.ifBlank { "hey tricky" }
+    fun wakeWord(c: Context): String {
+        val w = p(c).getString("wake", "")!!.trim()
+        // a antiga "hey tricky" (que o modelo não percebia) passa a "Olá Nénem"
+        return if (w.isBlank() || Txt.norm(w) == "hey tricky") "Olá Nénem" else w
+    }
+    fun childName(c: Context) = p(c).getString("child", "Sofia")!!.trim()
+    /** hora de deitar e de acordar (dias úteis), no formato HH:mm */
+    fun bedTime(c: Context) = p(c).getString("bed", "21:30")!!.trim()
+    fun wakeTime(c: Context) = p(c).getString("wakeup", "07:30")!!.trim()
     fun city(c: Context) = p(c).getString("city", "Lisboa")!!.ifBlank { "Lisboa" }
     fun haUrl(c: Context) = p(c).getString("ha_url", "")!!.trim().trimEnd('/')
     fun haToken(c: Context) = p(c).getString("ha_token", "")!!.trim()
@@ -21,6 +29,8 @@ object Prefs {
 
     fun bunnyVoice(c: Context) = p(c).getString("bunny", "sim") != "nao"
     fun bunnyPitch(c: Context) = p(c).getString("bunny_pitch", "1.45")!!.toFloatOrNull()?.coerceIn(0.8f, 2.2f) ?: 1.45f
+
+    fun get(c: Context, key: String) = p(c).getString(key, "") ?: ""
 
     fun save(c: Context, key: String, value: String) {
         p(c).edit().putString(key, value).apply()

@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
 /**
- * Serviço sempre ligado: ouve a palavra de ativação ("Hey Tricky"), depois ouve o pedido,
+ * Serviço sempre ligado: ouve a palavra de ativação ("Olá Nénem"), depois ouve o pedido,
  * responde em voz alta e volta a ficar à escuta.
  */
 class AssistantService : Service() {
@@ -97,6 +97,19 @@ class AssistantService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "manel:escuta").apply { acquire() }
         setupTts()
         scope.launch { loadModel() }
+        // rotina da Sofia: "bom dia" nos dias úteis e "boa noite" à hora de deitar
+        scope.launch {
+            while (true) {
+                try {
+                    val due = Routine.due(this@AssistantService)
+                    if (due != null && Prefs.get(this@AssistantService, "routine_last") != due.first) {
+                        Prefs.save(this@AssistantService, "routine_last", due.first)
+                        announce(due.second)
+                    }
+                } catch (e: Exception) { Log.w(TAG, "Erro na rotina", e) }
+                delay(15_000L)
+            }
+        }
         // verificar atualizações 1 minuto depois de arrancar e depois de 6 em 6 horas
         scope.launch {
             delay(60_000L)
@@ -382,20 +395,41 @@ class AssistantService : Service() {
     // ---------------------------------------------------------------- reconhecimento
 
     /**
-     * O modelo português não conhece "tricky", por isso usamos palavras portuguesas
-     * que soam parecido ("trico", "trica"…) evitando palavras demasiado comuns.
+     * Palavra de ativação: palavras que o modelo deve reconhecer (gramática),
+     * as formas normalizadas que contam como ativação e os prefixos aceites
+     * ("olá", "ei"…), que tornam a deteção mais segura.
      */
-    private fun wakeVariants(): List<String> {
-        val w = Txt.norm(Prefs.wakeWord(this)).removePrefix("hey ").removePrefix("ei ").trim()
-        return if (w.contains("trick") || w.contains("triki") || w.contains("trique")) {
-            listOf("trico", "trica", "trique", "truque", "trinca", "tique")
-        } else {
-            w.split(" ").filter { it.isNotBlank() }.ifEmpty { listOf("tricky") }
+    private class Wake(val grammarWords: List<String>, val targets: Set<String>, val prefixes: List<String>) {
+        val prefixNorms = prefixes.map { Txt.norm(it) }.toSet()
+        fun isTarget(word: String) = Txt.norm(word) in targets
+        fun isPrefix(word: String) = Txt.norm(word) in prefixNorms
+    }
+
+    private fun wakeSpec(): Wake {
+        val w = Txt.norm(Prefs.wakeWord(this))
+        return when {
+            // "Olá Nénem" (o modelo é do Brasil: "neném"/"nenê")
+            w.contains("nenem") || w.contains("nene") -> Wake(
+                listOf("neném", "nenem", "nenê", "nene"),
+                setOf("nenem", "nene"),
+                listOf("olá", "ola", "oi", "ei", "ai")
+            )
+            // O modelo português não conhece "tricky": usamos palavras que soam parecido
+            w.contains("trick") || w.contains("triki") || w.contains("trique") -> Wake(
+                listOf("trico", "trica", "trique", "truque", "trinca", "tique"),
+                setOf("trico", "trica", "trique", "truque", "trinca", "tique"),
+                listOf("ei", "ai")
+            )
+            else -> {
+                val words = w.split(" ").filter { it.isNotBlank() }.ifEmpty { listOf("tricky") }
+                val last = words.last()
+                Wake(listOf(last), setOf(last), (words.dropLast(1) + listOf("ei", "ai")).distinct())
+            }
         }
     }
 
-    private fun wakeGrammar(variants: List<String>): String {
-        val phrases = variants + variants.map { "ei $it" } + variants.map { "ai $it" } + "[unk]"
+    private fun wakeGrammar(wake: Wake): String {
+        val phrases = wake.grammarWords + wake.prefixes.flatMap { pre -> wake.grammarWords.map { "$pre $it" } } + "[unk]"
         return JSONArray(phrases).toString()
     }
 
@@ -464,8 +498,8 @@ class AssistantService : Service() {
         Bus.status.value = "À escuta — diz \"${Prefs.wakeWord(this)}\""
         Bus.mode.value = "idle"
 
-        val variants = wakeVariants()
-        val grammar = wakeGrammar(variants)
+        val wake = wakeSpec()
+        val grammar = wakeGrammar(wake)
 
         recognitionJob = scope.launch {
             val started = withContext(Dispatchers.IO) {
@@ -491,8 +525,8 @@ class AssistantService : Service() {
                         val words = p.split(' ').filter { it.isNotBlank() }
                         for (i in words.indices) {
                             val w = words[i]
-                            if (w !in variants) continue
-                            val hasPrefix = i > 0 && (words[i - 1] == "ei" || words[i - 1] == "ai")
+                            if (!wake.isTarget(w)) continue
+                            val hasPrefix = i > 0 && wake.isPrefix(words[i - 1])
                             if (hasPrefix) {
                                 main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
                                 return
@@ -523,7 +557,7 @@ class AssistantService : Service() {
                                 }
                             }
                         }
-                        if (isWake(hypothesis, variants)) {
+                        if (isWake(hypothesis, wake)) {
                             main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
                         }
                     }
@@ -542,7 +576,7 @@ class AssistantService : Service() {
         }
     }
 
-    private fun isWake(json: String?, variants: List<String>): Boolean {
+    private fun isWake(json: String?, wake: Wake): Boolean {
         if (json.isNullOrBlank()) return false
         val o = JSONObject(json)
         val words = o.optJSONArray("result") ?: return false
@@ -551,8 +585,8 @@ class AssistantService : Service() {
             val w = words.getJSONObject(i)
             val word = w.optString("word")
             val conf = w.optDouble("conf", 1.0)
-            if (word in variants) {
-                val hasPrefix = prevWord == "ei" || prevWord == "ai"
+            if (wake.isTarget(word)) {
+                val hasPrefix = wake.isPrefix(prevWord)
                 val minConf = when {
                     hasPrefix -> 0.45
                     word.length < 6 -> 0.60
@@ -652,6 +686,22 @@ class AssistantService : Service() {
             } else if (gen == recognitionGen && !destroyed) {
                 scheduleRecovery(gen, IllegalStateException("Falha ao iniciar escuta de comando"))
             }
+        }
+    }
+
+    /** O Tricky fala por iniciativa própria (bom dia, boa noite). */
+    fun announce(text: String) {
+        if (destroyed) return
+        cancelRecovery()
+        recognitionJob?.cancel()
+        recognitionGen++
+        mode = Mode.BUSY
+        Bus.heard.value = ""
+        Bus.answer.value = text
+        scope.launch {
+            withContext(Dispatchers.IO) { stopRecognitionSync() }
+            requestFocus()
+            say(text, null)
         }
     }
 
