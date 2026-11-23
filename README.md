@@ -5,7 +5,7 @@ O reconhecimento de voz é feito **no próprio relógio** (Vosk, modelo `vosk-mo
 
 ## O que faz
 
-Diz **"Olá Nénem"**, espera pelo bip e pede:
+Carrega no **Tricky**, no mosaico **🎤 Falar** ou no **botão do meio** do relógio, espera pelo bip e pede:
 
 | Pedido | Exemplo |
 |---|---|

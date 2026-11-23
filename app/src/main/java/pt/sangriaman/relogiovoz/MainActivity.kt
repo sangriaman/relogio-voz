@@ -37,6 +37,12 @@ import kotlin.math.roundToInt
  */
 class MainActivity : Activity() {
 
+    companion object {
+        /** O ecrã inicial está à frente? (para o botão do meio do relógio) */
+        @Volatile var front = false
+        @Volatile var pausedAt = 0L
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var plush: PlushView
     private lateinit var bubble: TextView
@@ -56,6 +62,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // voltar a acender por cima do ecrã de bloqueio quando o botão do meio apaga o ecrã
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
         setContentView(android.widget.FrameLayout(this).apply {
             addView(buildUi())
             addView(buildNight())
@@ -81,8 +90,15 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        front = true
         overlayButton.visibility = if (Settings.canDrawOverlays(this)) View.GONE else View.VISIBLE
         if (hasMic()) AssistantService.start(this)
+    }
+
+    override fun onPause() {
+        front = false
+        pausedAt = System.currentTimeMillis()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -94,7 +110,7 @@ class MainActivity : Activity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) return true
         // Botão do meio do relógio (KEY_MICMUTE no Linux = KEYCODE_MUTE no Android)
-        if (keyCode == KeyEvent.KEYCODE_MUTE || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
+        if (keyCode == KeyEvent.KEYCODE_MUTE || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE || event?.scanCode == 248) {
             if (event?.repeatCount == 0) AssistantService.instance?.listenForCommand()
             return true
         }

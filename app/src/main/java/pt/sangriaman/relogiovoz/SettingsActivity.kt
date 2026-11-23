@@ -40,7 +40,6 @@ class SettingsActivity : Activity() {
             setBackgroundColor(Color.rgb(0, 110, 112))
         }
 
-        val wake = field(box, "Palavra de ativação (ex.: Olá Nénem)", Prefs.wakeWord(this))
         val child = field(box, "Nome da criança (para o bom dia e a boa noite)", Prefs.childName(this))
         val bed = field(box, "Hora de deitar (modo noite e boa noite), ex.: 21:30", Prefs.bedTime(this))
         val wakeup = field(box, "Hora de acordar nos dias úteis (sem despertador ao fim de semana e feriados), ex.: 07:30", Prefs.wakeTime(this))
@@ -53,7 +52,6 @@ class SettingsActivity : Activity() {
         box.addView(Button(this).apply {
             text = "Guardar"
             setOnClickListener {
-                Prefs.save(this@SettingsActivity, "wake", wake.text.toString().trim())
                 Prefs.save(this@SettingsActivity, "city", city.text.toString().trim())
                 Prefs.save(this@SettingsActivity, "child", child.text.toString().trim())
                 Prefs.save(this@SettingsActivity, "bed", bed.text.toString().trim())

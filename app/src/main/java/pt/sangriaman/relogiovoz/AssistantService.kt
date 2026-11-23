@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
 /**
- * Serviço sempre ligado: ouve a palavra de ativação ("Olá Nénem"), depois ouve o pedido,
+ * Serviço sempre ligado: quando se carrega num botão ouve o pedido,
  * responde em voz alta e volta a ficar à escuta.
  */
 class AssistantService : Service() {
@@ -89,6 +89,27 @@ class AssistantService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private val screenOff = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            val recent = MainActivity.front || System.currentTimeMillis() - MainActivity.pausedAt < 2500
+            if (recent) wakeAndListen()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun wakeAndListen() {
+        try {
+            (getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "tricky:botao")
+                .acquire(3000L)
+        } catch (e: Exception) { Log.w(TAG, "Não consegui acender o ecrã", e) }
+        try {
+            startActivity(Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        } catch (e: Exception) { Log.w(TAG, "Não consegui abrir o ecrã inicial", e) }
+        main.postDelayed({ if (!destroyed) listenForCommand() }, 800)
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -96,6 +117,10 @@ class AssistantService : Service() {
         wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "manel:escuta").apply { acquire() }
         setupTts()
+        // No LineageOS do relógio o botão do meio funciona como botão de desligar o ecrã.
+        // Se o ecrã apagar com o Tricky à frente (que o mantém sempre aceso), foi o botão:
+        // volta a acender e põe o Tricky a ouvir.
+        registerReceiver(screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF), Context.RECEIVER_NOT_EXPORTED)
         scope.launch { loadModel() }
         // rotina da Sofia: "bom dia" nos dias úteis e "boa noite" à hora de deitar
         scope.launch {
@@ -136,6 +161,7 @@ class AssistantService : Service() {
         player = null
         Radio.release()
         wakeLock?.let { if (it.isHeld) it.release() }
+        try { unregisterReceiver(screenOff) } catch (_: Exception) { }
         scope.cancel()
         super.onDestroy()
     }
@@ -150,7 +176,7 @@ class AssistantService : Service() {
         )
         val n = Notification.Builder(this, CHANNEL)
             .setContentTitle("Tricky")
-            .setContentText("Diz \"${Prefs.wakeWord(this)}\" para falar comigo")
+            .setContentText("Carrega no botão para falar comigo")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(open)
             .setOngoing(true)
@@ -394,45 +420,6 @@ class AssistantService : Service() {
 
     // ---------------------------------------------------------------- reconhecimento
 
-    /**
-     * Palavra de ativação: palavras que o modelo deve reconhecer (gramática),
-     * as formas normalizadas que contam como ativação e os prefixos aceites
-     * ("olá", "ei"…), que tornam a deteção mais segura.
-     */
-    private class Wake(val grammarWords: List<String>, val targets: Set<String>, val prefixes: List<String>) {
-        val prefixNorms = prefixes.map { Txt.norm(it) }.toSet()
-        fun isTarget(word: String) = Txt.norm(word) in targets
-        fun isPrefix(word: String) = Txt.norm(word) in prefixNorms
-    }
-
-    private fun wakeSpec(): Wake {
-        val w = Txt.norm(Prefs.wakeWord(this))
-        return when {
-            // "Olá Nénem" (o modelo é do Brasil: "neném"/"nenê")
-            w.contains("nenem") || w.contains("nene") -> Wake(
-                listOf("neném", "nenem", "nenê", "nene"),
-                setOf("nenem", "nene"),
-                listOf("olá", "ola", "oi", "ei", "ai")
-            )
-            // O modelo português não conhece "tricky": usamos palavras que soam parecido
-            w.contains("trick") || w.contains("triki") || w.contains("trique") -> Wake(
-                listOf("trico", "trica", "trique", "truque", "trinca", "tique"),
-                setOf("trico", "trica", "trique", "truque", "trinca", "tique"),
-                listOf("ei", "ai")
-            )
-            else -> {
-                val words = w.split(" ").filter { it.isNotBlank() }.ifEmpty { listOf("tricky") }
-                val last = words.last()
-                Wake(listOf(last), setOf(last), (words.dropLast(1) + listOf("ei", "ai")).distinct())
-            }
-        }
-    }
-
-    private fun wakeGrammar(wake: Wake): String {
-        val phrases = wake.grammarWords + wake.prefixes.flatMap { pre -> wake.grammarWords.map { "$pre $it" } } + "[unk]"
-        return JSONArray(phrases).toString()
-    }
-
     private fun cancelRecovery() {
         recoveryRunnable?.let { main.removeCallbacks(it) }
         recoveryRunnable = null
@@ -487,119 +474,22 @@ class AssistantService : Service() {
         }
     }
 
-    /** Fica à espera da palavra de ativação (gramática pequena = leve para o relógio). */
+    /**
+     * Repouso: o microfone fica desligado. Só se fala com o Tricky carregando
+     * num botão (o Tricky, o mosaico Falar ou o botão do meio do relógio).
+     */
     fun listenForWakeWord() {
-        val m = model ?: return
         if (destroyed) return
         cancelRecovery()
         recognitionJob?.cancel()
-        val gen = ++recognitionGen
+        recognitionGen++
         mode = Mode.WAKE
-        Bus.status.value = "À escuta — diz \"${Prefs.wakeWord(this)}\""
+        Bus.status.value = "Toca no Tricky ou em 🎤 para falar"
         Bus.mode.value = "idle"
-
-        val wake = wakeSpec()
-        val grammar = wakeGrammar(wake)
-
-        recognitionJob = scope.launch {
-            val started = withContext(Dispatchers.IO) {
-                val rec = try {
-                    Recognizer(m, SAMPLE_RATE, grammar).apply { setWords(true) }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Erro ao criar Recognizer de wake word", e)
-                    return@withContext false
-                }
-                if (destroyed || gen != recognitionGen || mode != Mode.WAKE) {
-                    try { rec.close() } catch (_: Exception) { }
-                    return@withContext true
-                }
-                var lastPartialCandidate: String? = null
-                val listener = object : SimpleListener() {
-                    override fun onPartialResult(hypothesis: String?) {
-                        if (gen != recognitionGen || mode != Mode.WAKE) return
-                        val p = hypothesis?.let { JSONObject(it).optString("partial") }?.trim() ?: ""
-                        if (p.isBlank()) {
-                            lastPartialCandidate = null
-                            return
-                        }
-                        val words = p.split(' ').filter { it.isNotBlank() }
-                        for (i in words.indices) {
-                            val w = words[i]
-                            if (!wake.isTarget(w)) continue
-                            val hasPrefix = i > 0 && wake.isPrefix(words[i - 1])
-                            if (hasPrefix) {
-                                main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
-                                return
-                            }
-                            // Sem prefixo ("ei"/"ai"): não disparar imediatamente em palavras curtas;
-                            // exigir >= 6 letras confirmadas em dois parciais consecutivos.
-                            if (w.length >= 6) {
-                                if (lastPartialCandidate == w) {
-                                    main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
-                                } else {
-                                    lastPartialCandidate = w
-                                }
-                                return
-                            }
-                        }
-                        lastPartialCandidate = null
-                    }
-
-                    override fun onResult(hypothesis: String?) {
-                        if (gen != recognitionGen || mode != Mode.WAKE) return
-                        lastPartialCandidate = null
-                        val text = hypothesis?.let { JSONObject(it).optString("text") } ?: ""
-                        // mostrar o que percebeu ajuda a afinar a palavra de ativação
-                        if (text.isNotBlank() && text != "[unk]") {
-                            main.post {
-                                if (mode == Mode.WAKE) {
-                                    Bus.status.value = "Ouvi \"$text\" — diz \"${Prefs.wakeWord(this@AssistantService)}\""
-                                }
-                            }
-                        }
-                        if (isWake(hypothesis, wake)) {
-                            main.post { if (gen == recognitionGen && mode == Mode.WAKE) listenForCommand() }
-                        }
-                    }
-
-                    override fun onError(exception: Exception?) {
-                        scheduleRecovery(gen, exception)
-                    }
-                }
-                startRecognitionSync(rec, listener, null)
-            }
-            if (started) {
-                consecutiveRecErrors = 0
-            } else if (gen == recognitionGen && !destroyed) {
-                scheduleRecovery(gen, IllegalStateException("Falha ao iniciar microfone"))
-            }
-        }
+        scope.launch(Dispatchers.IO) { stopRecognitionSync() }
     }
 
-    private fun isWake(json: String?, wake: Wake): Boolean {
-        if (json.isNullOrBlank()) return false
-        val o = JSONObject(json)
-        val words = o.optJSONArray("result") ?: return false
-        var prevWord = ""
-        for (i in 0 until words.length()) {
-            val w = words.getJSONObject(i)
-            val word = w.optString("word")
-            val conf = w.optDouble("conf", 1.0)
-            if (wake.isTarget(word)) {
-                val hasPrefix = wake.isPrefix(prevWord)
-                val minConf = when {
-                    hasPrefix -> 0.45
-                    word.length < 6 -> 0.60
-                    else -> 0.55
-                }
-                if (conf >= minConf) return true
-            }
-            prevWord = word
-        }
-        return false
-    }
-
-    /** Chamado pela palavra de ativação ou pelo botão do ecrã. */
+    /** Chamado pelos botões (ecrã ou botão do meio do relógio). */
     fun listenForCommand() {
         val m = model ?: return
         if (destroyed || mode == Mode.COMMAND || mode == Mode.BUSY) return

@@ -11,11 +11,6 @@ import java.util.concurrent.TimeUnit
 object Prefs {
     private fun p(c: Context) = c.getSharedPreferences("manel", Context.MODE_PRIVATE)
 
-    fun wakeWord(c: Context): String {
-        val w = p(c).getString("wake", "")!!.trim()
-        // a antiga "hey tricky" (que o modelo não percebia) passa a "Olá Nénem"
-        return if (w.isBlank() || Txt.norm(w) == "hey tricky") "Olá Nénem" else w
-    }
     fun childName(c: Context) = p(c).getString("child", "Sofia")!!.trim()
     /** hora de deitar e de acordar (dias úteis), no formato HH:mm */
     fun bedTime(c: Context) = p(c).getString("bed", "21:30")!!.trim()
