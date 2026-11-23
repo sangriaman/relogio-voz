@@ -26,7 +26,8 @@ object Routine {
 
     /** Há escola/despertador neste dia? */
     fun isSchoolDay(d: LocalDate) =
-        d.dayOfWeek != DayOfWeek.SATURDAY && d.dayOfWeek != DayOfWeek.SUNDAY && !Holidays.isHoliday(d)
+        d.dayOfWeek != DayOfWeek.SATURDAY && d.dayOfWeek != DayOfWeek.SUNDAY &&
+            !Holidays.isHoliday(d) && !SchoolBreaks.isBreak(d)
 
     /** Hora a que a manhã começa neste dia (despertador ou manhã livre). */
     fun morning(c: Context, d: LocalDate): LocalTime = if (isSchoolDay(d)) wake(c) else RELAXED_MORNING
@@ -91,4 +92,24 @@ object Holidays {
             d == e ||                  // Páscoa
             d == e.plusDays(60)        // Corpo de Deus
     }
+}
+
+/**
+ * Férias escolares (calendário nacional, Despacho n.º 8368/2024), para a Sofia (6.º ano).
+ * Datas inclusivas. Atualizar quando sair o calendário dos anos seguintes.
+ */
+object SchoolBreaks {
+    private val BREAKS = listOf(
+        // 2026/2027
+        LocalDate.of(2026, 12, 16) to LocalDate.of(2026, 12, 31), // Natal
+        LocalDate.of(2027, 2, 8) to LocalDate.of(2027, 2, 10),    // Carnaval
+        LocalDate.of(2027, 3, 22) to LocalDate.of(2027, 4, 2),    // Páscoa
+        LocalDate.of(2027, 6, 12) to LocalDate.of(2027, 9, 12),   // Verão (fim das aulas do 6.º ano a 11/6; regresso aprox.)
+        // 2027/2028
+        LocalDate.of(2027, 12, 20) to LocalDate.of(2027, 12, 31), // Natal
+        LocalDate.of(2028, 2, 28) to LocalDate.of(2028, 3, 1),    // Carnaval
+        LocalDate.of(2028, 4, 3) to LocalDate.of(2028, 4, 17)     // Páscoa
+    )
+
+    fun isBreak(d: LocalDate) = BREAKS.any { (a, b) -> !d.isBefore(a) && !d.isAfter(b) }
 }

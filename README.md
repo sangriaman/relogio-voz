@@ -21,7 +21,7 @@ Diz **"Olá Nénem"**, espera pelo bip e pede:
 
 ## Rotina
 
-- Dias úteis às **07:30**: "Bom dia, Sofia! Está na hora de acordar." (sem despertador ao fim de semana e nos feriados, incluindo Carnaval e o feriado de Guimarães).
+- Dias úteis às **07:30**: "Bom dia, Sofia! Está na hora de acordar." (sem despertador ao fim de semana, nos feriados — incluindo o de Guimarães — e nas férias escolares: Natal, Carnaval, Páscoa e verão, até 2027/28).
 - Todos os dias às **21:30**: "Boa noite, Sofia! Está na hora de dormir." e o ecrã passa a **modo noite** (escuro, só as horas) até de manhã. Tocar no ecrã mostra o ecrã normal durante 1 minuto.
 - Nome e horas mudam-se em ⚙.
 
