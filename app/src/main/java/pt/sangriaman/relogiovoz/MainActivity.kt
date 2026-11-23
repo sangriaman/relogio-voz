@@ -29,6 +29,7 @@ import pt.sangriaman.relogiovoz.skills.HA
 import pt.sangriaman.relogiovoz.skills.Radio
 import pt.sangriaman.relogiovoz.skills.WeatherSkill
 import pt.sangriaman.relogiovoz.skills.sendMediaKey
+import kotlin.math.roundToInt
 
 /**
  * Ecrã inicial do relógio: o Tricky à esquerda; à direita as horas
@@ -40,6 +41,7 @@ class MainActivity : Activity() {
     private lateinit var plush: PlushView
     private lateinit var bubble: TextView
     private lateinit var weather: TextView
+    private lateinit var weatherSub: TextView
     private lateinit var music: TextView
     private lateinit var homeRow: LinearLayout
     private lateinit var overlayButton: Button
@@ -59,7 +61,7 @@ class MainActivity : Activity() {
         scope.launch { Bus.heard.collect { refreshBubble() } }
         scope.launch { Bus.answer.collect { refreshBubble() } }
         scope.launch {
-            Bus.nowPlaying.collect { music.text = if (it.isBlank()) "🎵 Diz \"toca…\" para ouvir música" else it }
+            Bus.nowPlaying.collect { music.text = if (it.isBlank()) "🎵" else it }
         }
         scope.launch { weatherLoop() }
 
@@ -116,9 +118,22 @@ class MainActivity : Activity() {
             try {
                 val city = Prefs.city(this)
                 val f = withContext(Dispatchers.IO) { WeatherSkill.fetch(city) }
-                weather.text = if (f != null) WeatherSkill.widgetLine(f) else "Cidade \"$city\" não encontrada"
+                if (f != null) {
+                    val cur = f.json.getJSONObject("current")
+                    val d = f.json.getJSONObject("daily")
+                    val code = cur.getInt("weather_code")
+                    val t = cur.getDouble("temperature_2m").roundToInt()
+                    val max = d.getJSONArray("temperature_2m_max").getDouble(0).roundToInt()
+                    val min = d.getJSONArray("temperature_2m_min").getDouble(0).roundToInt()
+                    val rain = d.getJSONArray("precipitation_probability_max").optInt(0, 0)
+                    weather.text = "${WeatherSkill.icon(code)} $t°"
+                    weatherSub.text = "${f.name}\n↑$max° ↓$min° · 💧$rain%"
+                } else {
+                    weather.text = "?"
+                    weatherSub.text = "Cidade \"$city\" não encontrada"
+                }
             } catch (e: Exception) {
-                if (weather.text.isNullOrBlank()) weather.text = "Sem dados do tempo"
+                if (weather.text == "…") weatherSub.text = "Sem dados do tempo"
             }
             delay(30 * 60 * 1000L)
         }
@@ -161,11 +176,27 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------------ layout
 
+    // Cores dos mosaicos, ao estilo do Windows Phone
+    private val tClock = Color.rgb(0, 104, 108)
+    private val tWeather = Color.rgb(240, 150, 9)
+    private val tMusic = Color.rgb(162, 0, 255)
+    private val tRadio = Color.rgb(229, 20, 0)
+    private val tTalk = Color.rgb(27, 161, 226)
+    private val tApps = Color.rgb(51, 153, 51)
+    private val tBar = Color.argb(120, 0, 70, 75)
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun ask(text: String) {
+        val s = AssistantService.instance
+        if (s == null) Bus.status.value = "O Tricky ainda está a acordar…" else s.runText(text)
+    }
+
     private fun buildUi(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(turquoise)
-            setPadding(12, 8, 12, 8)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
         }
 
         // --- esquerda: o Tricky e o balão de fala
@@ -181,90 +212,172 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             maxLines = 4
-            setPadding(14, 10, 14, 10)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
             background = rounded(card, 18f)
         }
         left.addView(plush, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         left.addView(bubble, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
-        // --- direita: horas e widgets
-        val right = LinearLayout(this).apply {
+        // --- direita: grelha de mosaicos
+        val grid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(14, 0, 0, 0)
+            setPadding(dp(4), 0, 0, 0)
         }
+
+        // Mosaico largo das horas (tocar = o Tricky diz as horas)
         val clock = TextClock(this).apply {
             format24Hour = "HH:mm"
             format12Hour = "HH:mm"
-            textSize = 78f
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             includeFontPadding = false
-            setLineSpacing(0f, 0.9f)
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            maxLines = 1
+            setAutoSizeTextTypeUniformWithConfiguration(30, 140, 2, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
         val date = TextClock(this).apply {
             format24Hour = "EEEE, d 'de' MMMM"
             format12Hour = "EEEE, d 'de' MMMM"
-            textSize = 17f
+            textSize = 16f
             setTextColor(Color.WHITE)
+            maxLines = 1
         }
-        weather = widget("A carregar o tempo…")
-        music = widget("")
-        val musicControls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        musicControls.addView(small("⏮") { sendMediaKey(this, KeyEvent.KEYCODE_MEDIA_PREVIOUS) })
-        musicControls.addView(small("⏯") {
+        val clockTile = tileBox(tClock) { ask("que horas são") }.apply {
+            addView(clock, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(date)
+        }
+
+        // Tempo
+        weather = TextView(this).apply {
+            text = "…"
+            setTextColor(Color.WHITE)
+            includeFontPadding = false
+            maxLines = 1
+            gravity = Gravity.CENTER_VERTICAL
+            setAutoSizeTextTypeUniformWithConfiguration(18, 64, 2, android.util.TypedValue.COMPLEX_UNIT_SP)
+        }
+        weatherSub = TextView(this).apply {
+            text = "Tempo"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            maxLines = 2
+        }
+        val weatherTile = tileBox(tWeather) { ask("como está o tempo") }.apply {
+            addView(weather, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(weatherSub)
+        }
+
+        // Música (mostra o que está a tocar)
+        music = TextView(this).apply {
+            text = "🎵"
+            setTextColor(Color.WHITE)
+            maxLines = 3
+            gravity = Gravity.CENTER_VERTICAL
+            setAutoSizeTextTypeUniformWithConfiguration(13, 44, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        }
+        val musicTile = tileBox(tMusic) { musicDialog { ask("toca $it") } }.apply {
+            addView(music, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(label("Música"))
+        }
+
+        val radioTile = iconTile(tRadio, "📻", "Rádio") { radioDialog { ask("põe a rádio $it") } }
+        val talkTile = iconTile(tTalk, "🎤", "Falar") { AssistantService.instance?.listenForCommand() }
+        val appsTile = iconTile(tApps, "▦", "Apps") { startActivity(Intent(this, AppsActivity::class.java)) }
+
+        // Barra fina: controlos de música e definições
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        bar.addView(barButton("⏮") { sendMediaKey(this, KeyEvent.KEYCODE_MEDIA_PREVIOUS) })
+        bar.addView(barButton("⏯") {
             if (Radio.isPlaying()) Radio.stop().also { Bus.nowPlaying.value = "" }
             else sendMediaKey(this, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
         })
-        musicControls.addView(small("⏭") { sendMediaKey(this, KeyEvent.KEYCODE_MEDIA_NEXT) })
-        musicControls.addView(small("⏹") {
+        bar.addView(barButton("⏭") { sendMediaKey(this, KeyEvent.KEYCODE_MEDIA_NEXT) })
+        bar.addView(barButton("⏹") {
             Radio.stop()
             sendMediaKey(this, KeyEvent.KEYCODE_MEDIA_PAUSE)
             Bus.nowPlaying.value = ""
         })
-
-        homeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            visibility = View.GONE
+        bar.addView(barButton("⚙") { startActivity(Intent(this, SettingsActivity::class.java)) })
+        overlayButton = Button(this).apply {
+            text = "Permitir abrir apps"
+            isAllCaps = false
+            textSize = 13f
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            }
         }
+        bar.addView(overlayButton)
 
-        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        bottom.addView(small("▦ Apps") { startActivity(Intent(this, AppsActivity::class.java)) })
-        bottom.addView(small("🎤 Falar") { AssistantService.instance?.listenForCommand() })
-        bottom.addView(small("⚙") { startActivity(Intent(this, SettingsActivity::class.java)) })
-        overlayButton = small("Permitir abrir apps") {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        }
-        bottom.addView(overlayButton)
+        homeRow = LinearLayout(this).apply { visibility = View.GONE }
 
-        right.addView(clock)
-        right.addView(date)
-        right.addView(weather, margins())
-        right.addView(quickRow(), margins())
-        right.addView(music, margins())
-        right.addView(musicControls)
-        right.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-        right.addView(bottom)
+        grid.addView(row(1.35f, clockTile to 1f))
+        grid.addView(row(1.15f, weatherTile to 1.15f, musicTile to 1f))
+        grid.addView(row(0.9f, radioTile to 1f, talkTile to 1f, appsTile to 1f))
+        grid.addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)).apply { topMargin = dp(4) })
 
         root.addView(left, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
-        root.addView(right, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.25f))
+        root.addView(grid, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.3f))
         return root
     }
 
-    /** Botões de pedidos rápidos para quem não quer (ou não consegue) falar. */
-    private fun quickRow(): View {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun ask(text: String) {
-            val s = AssistantService.instance
-            if (s == null) Bus.status.value = "O Tricky ainda está a acordar…" else s.runText(text)
+    /** Uma linha da grelha com mosaicos lado a lado (pares vista/peso). */
+    private fun row(weight: Float, vararg tiles: Pair<View, Float>): View {
+        val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tiles.forEachIndexed { i, (v, w) ->
+            r.addView(v, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, w).apply {
+                if (i > 0) leftMargin = dp(4)
+            })
         }
-        row.addView(chip("☀️ Tempo", false) { ask("como está o tempo") })
-        row.addView(chip("🕐 Horas", false) { ask("que horas são") })
-        row.addView(chip("🎵 Música", false) { musicDialog { ask("toca $it") } })
-        row.addView(chip("📻 Rádio", false) { radioDialog { ask("põe a rádio $it") } })
-        return android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(row)
+        r.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, weight).apply { topMargin = dp(4) }
+        return r
+    }
+
+    /** Mosaico vazio (cor lisa, cantos retos) que escurece ao tocar. */
+    private fun tileBox(color: Int, onClick: () -> Unit) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(color)
+        setPadding(dp(8), dp(6), dp(8), dp(6))
+        isClickable = true
+        setOnClickListener { onClick() }
+        setOnTouchListener { v, e ->
+            when (e.action) {
+                android.view.MotionEvent.ACTION_DOWN -> { v.alpha = 0.7f; v.scaleX = 0.97f; v.scaleY = 0.97f }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> { v.alpha = 1f; v.scaleX = 1f; v.scaleY = 1f }
+            }
+            false
         }
+    }
+
+    private fun label(text: String) = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        setTextColor(Color.WHITE)
+        maxLines = 1
+    }
+
+    /** Mosaico com um ícone grande ao centro e o nome em baixo à esquerda. */
+    private fun iconTile(color: Int, icon: String, name: String, onClick: () -> Unit) = tileBox(color, onClick).apply {
+        addView(TextView(this@MainActivity).apply {
+            text = icon
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setAutoSizeTextTypeUniformWithConfiguration(16, 56, 2, android.util.TypedValue.COMPLEX_UNIT_SP)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(label(name))
+    }
+
+    private fun barButton(text: String, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        textSize = 20f
+        setTextColor(Color.WHITE)
+        gravity = Gravity.CENTER
+        setBackgroundColor(tBar)
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(4) }
     }
 
     private fun musicDialog(onPick: (String) -> Unit) {
@@ -305,25 +418,6 @@ class MainActivity : Activity() {
     private fun rounded(color: Int, radius: Float) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = radius
-    }
-
-    private fun widget(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 16f
-        setTextColor(Color.WHITE)
-        setPadding(14, 10, 14, 10)
-        background = rounded(card, 14f)
-        maxLines = 2
-    }
-
-    private fun small(label: String, onClick: () -> Unit) = Button(this).apply {
-        text = label
-        isAllCaps = false
-        textSize = 17f
-        minWidth = 0
-        minimumWidth = 0
-        setPadding(22, 0, 22, 0)
-        setOnClickListener { onClick() }
     }
 
     private fun chip(label: String, on: Boolean, onClick: () -> Unit) = TextView(this).apply {
